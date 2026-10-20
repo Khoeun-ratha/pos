@@ -1,0 +1,33 @@
+{
+  "name": "pos-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 8080",
+    "typecheck": "vue-tsc -b",
+    "e2e": "node e2e/smoke.mjs && node e2e/scanner.mjs"
+  },
+  "dependencies": {
+    "barcode-detector": "^3.2.3",
+    "chart.js": "^4.5.1",
+    "lucide-vue-next": "^1.0.0",
+    "pinia": "^4.1.0",
+    "vue": "^3.5.44",
+    "vue-chartjs": "^5.3.4",
+    "vue-router": "^5.4.0",
+    "zxing-wasm": "^3.1.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.6.5",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "puppeteer-core": "^25.14.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.4",
+    "vue-tsc": "^3.3.13"
+  }
+}

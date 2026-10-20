@@ -1,0 +1,131 @@
+=====================================================================
+                 COMPLETE POS SYSTEM - PROMPT & TECH GUIDE
+=====================================================================
+
+---------------------------------------------------------------------
+PART 1: RECOMMENDED LANGUAGE / TECH STACK
+---------------------------------------------------------------------
+
+BEST CHOICE: TypeScript (Full Stack)
+  - One language for frontend and backend
+  - Runs on any device with a browser (PC, tablet, phone)
+  - Huge ecosystem, easy to hire for, works great with AI coding tools
+
+  Layer               Recommended                          Why
+  ------------------  -----------------------------------  ---------------------------------
+  Frontend            React + TypeScript + Tailwind CSS    Fast, touch-friendly UI
+  Backend             Node.js + NestJS (or Express)        Same language, well structured
+  Database            PostgreSQL + Prisma ORM              Reliable for money/transactions
+  Desktop/Offline     Tauri or Electron (optional)         Printer/cash drawer, offline use
+  Mobile              React Native (optional)              Reuse TypeScript skills
+
+ALTERNATIVES:
+  - C# (.NET 8 + WPF/Blazor) + SQL Server
+      -> Windows-only shop, heavy hardware integration
+  - Python (Django) + PostgreSQL
+      -> If you already know Python; web / back-office focused
+  - Flutter (Dart)
+      -> Mobile / tablet POS first
+
+
+---------------------------------------------------------------------
+PART 2: PROMPT FOR A COMPLETE POS SYSTEM (copy everything below)
+---------------------------------------------------------------------
+
+Build a complete, production-ready Point of Sale (POS) system for a retail shop / restaurant.
+
+## Tech stack
+- Frontend: React + TypeScript + Vite + Tailwind CSS (touch-friendly, responsive for PC & tablet)
+- Backend: Node.js + NestJS + TypeScript, REST API
+- Database: PostgreSQL with Prisma ORM (include migrations and seed data)
+- Auth: JWT with refresh tokens, bcrypt password hashing
+- Monorepo layout: /apps/web, /apps/api, /packages/shared (shared types)
+
+## User roles & permissions
+- Admin: full access, settings, users, reports
+- Manager: products, inventory, discounts, refunds, reports
+- Cashier: sales screen, open/close shift, view own sales only
+- Role-based access control on both API and UI
+
+## Core modules
+1. Sales / Checkout screen
+   - Product grid by category + search + barcode scanner input
+   - Cart: add/remove items, change quantity, item notes
+   - Discounts (percent / fixed, per item and per order), coupon codes
+   - Tax calculation (configurable tax rates, tax-inclusive or exclusive)
+   - Multiple payment methods: cash (with change calculation), card,
+     QR / e-wallet (e.g. KHQR / ABA), split payment
+   - Multi-currency support (USD and KHR with configurable exchange rate)
+   - Hold / resume orders, void items (with manager PIN)
+   - Print receipt (80mm thermal format) and option to email receipt
+
+2. Products & Categories
+   - CRUD products: name, SKU, barcode, price, cost, category, image,
+     variants (size/color), active flag
+   - Bulk import/export via CSV/Excel
+
+3. Inventory
+   - Stock levels per product/variant, low-stock alerts
+   - Stock in (purchase), stock adjustment, stock transfer between branches
+   - Full stock movement history
+
+4. Customers
+   - Customer profiles, purchase history, loyalty points, membership tiers
+
+5. Suppliers & Purchase Orders
+   - Supplier list, create PO, receive goods -> updates inventory
+
+6. Shifts & Cash Management
+   - Open shift with starting cash, cash in/out,
+     close shift with cash count and variance report
+
+7. Refunds & Returns
+   - Full or partial refund linked to original receipt,
+     restocks inventory, requires manager approval
+
+8. Reports & Dashboard
+   - Daily/weekly/monthly sales; sales by product, category, cashier, payment method
+   - Profit report (price - cost), top sellers, low-stock report
+   - Charts on dashboard, export reports to PDF/Excel
+
+9. Settings
+   - Store info, logo, receipt header/footer, tax rates, currencies, exchange rate
+   - Multi-branch support
+   - Language support: English and Khmer (i18n)
+
+10. Audit Log
+   - Record who did what and when (price changes, voids, refunds, logins)
+
+## Non-functional requirements
+- Money stored as integers (cents) or Decimal, never floating point
+- All sale operations in database transactions
+- Input validation on all API endpoints (class-validator / zod)
+- Offline-tolerant sales screen: queue sales locally and sync when online
+- Clean, modern UI with dark/light mode
+- Unit tests for business logic (pricing, tax, discounts, refunds) and API e2e tests
+- Docker Compose for Postgres + API + Web
+- README with setup instructions, environment variables, and default admin login
+
+## Delivery approach
+Work step by step:
+1. Propose the database schema (ERD) and folder structure, then wait for my approval
+2. Build backend (auth -> products -> inventory -> sales -> reports)
+3. Build frontend screens in the same order
+4. Add tests, seed data, Docker, and documentation
+After each step, run the app/tests and confirm it works before moving on.
+
+
+---------------------------------------------------------------------
+PART 3: TIPS
+---------------------------------------------------------------------
+- Change "retail shop / restaurant" to your exact business type
+  (retail, restaurant, cafe, pharmacy, mini-mart...).
+- For a RESTAURANT, also add:
+    * Table management (floor plan, merge/split tables)
+    * Kitchen Display System (KDS) or kitchen order ticket printing
+    * Item modifiers (e.g. "no sugar", "extra cheese", "less ice")
+- Remove KHQR / KHR / Khmer if you are not in Cambodia.
+- Build in phases: Auth -> Products -> Checkout -> Receipt FIRST,
+  then Inventory, Reports, and the rest.
+
+=====================================================================

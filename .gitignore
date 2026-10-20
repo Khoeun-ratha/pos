@@ -1,0 +1,17 @@
+# Python service
+server/.venv/
+server/pos.db
+server/.jwt_secret
+server/.env
+server/uploads/
+__pycache__/
+.pytest_cache/
+
+# Vue web
+web/node_modules/
+web/dist/
+
+# Flutter (mobile/.gitignore covers the rest)
+mobile/build/
+
+*.log
