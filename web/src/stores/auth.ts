@@ -5,7 +5,7 @@ import { api, setToken } from '@/api/client'
 import type { Permission, PermissionsInfo, StoreSettings, TokenResponse, User } from '@/api/types'
 
 const DEFAULT_SETTINGS: StoreSettings = {
-  store_name: 'POS',
+  store_name: 'RATHA MART',
   store_address: '',
   store_phone: '',
   tax_rate_bp: 0,

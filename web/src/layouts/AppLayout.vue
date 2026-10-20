@@ -26,6 +26,8 @@ import { type Component, computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { api } from '@/api/client'
+import BrandMark from '@/components/BrandMark.vue'
+import BrandName from '@/components/BrandName.vue'
 import { lang, setLang, t } from '@/lib/i18n'
 import { khr } from '@/lib/money'
 import { REPORT_MENU } from '@/lib/reportDefs'
@@ -252,11 +254,9 @@ onMounted(() => {
     >
       <div class="flex h-16 items-center gap-3 border-b border-line px-4">
         <img v-if="auth.settings.logo_url" :src="auth.settings.logo_url" alt="" class="size-10 shrink-0 rounded-xl object-contain" />
-        <div v-else class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-indigo-500 text-white shadow-sm shadow-primary/30">
-          <Store :size="21" />
-        </div>
+        <BrandMark v-else class="size-10 shrink-0 drop-shadow-sm" />
         <div v-if="!iconsOnly" class="min-w-0">
-          <p class="truncate leading-tight font-extrabold">{{ auth.settings.store_name }}</p>
+          <p class="truncate leading-tight"><BrandName :name="auth.settings.store_name" /></p>
           <p class="text-xs text-muted">{{ t('Point of sale') }}</p>
         </div>
       </div>

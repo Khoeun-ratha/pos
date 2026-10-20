@@ -1,5 +1,5 @@
 /** Prints plain receipt text on an 80mm receipt printer (or any printer) through the browser's print dialog,
- *  with the shop logo on top when there is one. */
+ *  with the shop logo on top (the RATHA MART mark when no logo was uploaded). */
 export function printReceipt(text: string, title = 'Receipt', logoUrl = '') {
   const frame = document.createElement('iframe')
   frame.style.position = 'fixed'
@@ -14,6 +14,7 @@ export function printReceipt(text: string, title = 'Receipt', logoUrl = '') {
     @page { size: 80mm auto; margin: 3mm; }
     body { margin: 0; }
     img { display: block; margin: 0 auto 2mm; max-width: 40mm; max-height: 22mm; }
+    img.mark { height: 14mm; }
     pre { font: 12px/1.35 "Cascadia Mono", Consolas, "Courier New", monospace; white-space: pre; margin: 0; }
   </style></head><body><pre></pre></body></html>`)
   doc.close()
@@ -25,13 +26,13 @@ export function printReceipt(text: string, title = 'Receipt', logoUrl = '') {
     frame.contentWindow!.print()
     setTimeout(() => frame.remove(), 1000)
   }
-  if (!logoUrl) return print()
   const img = doc.createElement('img')
+  if (!logoUrl) img.className = 'mark'
   img.onload = print
   img.onerror = () => {
     img.remove() // print without the logo rather than not at all
     print()
   }
-  img.src = new URL(logoUrl, location.origin).href
+  img.src = new URL(logoUrl || '/receipt-logo.svg', location.origin).href
   doc.body.prepend(img)
 }

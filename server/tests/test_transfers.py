@@ -30,7 +30,7 @@ def test_send_and_receive_moves_stock(client, manager):
     })
     assert sent.status_code == 201, sent.text
     transfer = sent.json()
-    assert transfer["status"] == "in_transit" and transfer["from_name"] == "Warehouse" and transfer["to_name"] == "My Mini Mart"
+    assert transfer["status"] == "in_transit" and transfer["from_name"] == "Warehouse" and transfer["to_name"] == "RATHA MART"
     assert transfer["transfer_no"].startswith("TR") and transfer["total_qty"] == 30
     assert stock_at(client, manager, store["id"], coke["id"]) == 70
     assert product_by_name(client, manager, "Coca-Cola 330ml")["stock_qty"] == coke["stock_qty"]

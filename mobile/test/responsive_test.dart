@@ -20,7 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 const sizes = {'phone': Size(390, 844), 'tablet': Size(820, 1180), 'laptop': Size(1280, 720), 'desktop': Size(1920, 1080)};
 
 const manager = User(id: 2, username: 'manager', fullName: 'Store Manager', role: 'manager');
-const settings = StoreSettings(storeName: 'My Mini Mart', taxRateBp: 1000, exchangeRate: 4100);
+const settings = StoreSettings(storeName: 'RATHA MART', taxRateBp: 1000, exchangeRate: 4100);
 
 final categories = [
   for (final (i, n) in ['Drinks', 'Snacks', 'Groceries', 'Personal Care', 'Household'].indexed) Category(id: i + 1, name: n),

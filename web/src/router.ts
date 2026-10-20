@@ -75,5 +75,6 @@ router.beforeEach(async (to) => {
 
 router.afterEach((to) => {
   const title = to.name === 'report' ? REPORTS[String(to.params.kind)]?.title : to.meta.title
-  document.title = title && title !== 'POS' ? `${t(title)} · POS` : 'POS'
+  const shop = useAuth().settings.store_name || 'POS'
+  document.title = title && title !== 'POS' ? `${t(title)} · ${shop}` : `${shop} · POS`
 })

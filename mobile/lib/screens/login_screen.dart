@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/session.dart';
+import '../widgets/brand_mark.dart';
 import '../widgets/common.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -44,9 +45,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Icon(Icons.point_of_sale, size: 72, color: Theme.of(context).colorScheme.primary),
-                    const SizedBox(height: 8),
-                    Text(storeName, textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall),
+                    const Center(child: BrandMark(size: 80)),
+                    const SizedBox(height: 14),
+                    Text(
+                      storeName,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 0.5),
+                    ),
                     const SizedBox(height: 32),
                     TextField(
                       controller: _server,

@@ -7,6 +7,7 @@ import '../core/money.dart';
 import '../core/theme.dart';
 import '../state/sales.dart';
 import '../state/session.dart';
+import '../widgets/brand_mark.dart';
 import 'customers_screen.dart';
 import 'more_screen.dart';
 import 'pos_screen.dart';
@@ -250,12 +251,7 @@ class _Menu extends ConsumerWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Row(
                     children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(10)),
-                        child: const Icon(Icons.storefront, color: Colors.white, size: 22),
-                      ),
+                      const BrandMark(size: 40),
                       if (!collapsed) ...[
                         const SizedBox(width: 12),
                         Expanded(

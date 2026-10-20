@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from .models import Setting
 
 DEFAULTS: dict[str, str] = {
-    "store_name": "My Mini Mart",
+    "store_name": "RATHA MART",
     "store_address": "Phnom Penh, Cambodia",
     "store_phone": "",
     "tax_rate_bp": "1000",  # 10.00% VAT

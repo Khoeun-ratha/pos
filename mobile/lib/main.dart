@@ -27,7 +27,7 @@ class PosApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final loggedIn = ref.watch(sessionProvider.select((s) => s.loggedIn));
     return MaterialApp(
-      title: 'POS',
+      title: 'RATHA MART',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(), // light mode only, everywhere
       themeMode: ThemeMode.light,

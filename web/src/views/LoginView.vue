@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { KeyRound, LogIn, Store } from 'lucide-vue-next'
+import { KeyRound, LogIn } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import BrandMark from '@/components/BrandMark.vue'
+import BrandName from '@/components/BrandName.vue'
 import { useAuth } from '@/stores/auth'
 import { t } from '@/lib/i18n'
 
@@ -37,8 +39,9 @@ async function submit() {
   <div class="flex min-h-full items-center justify-center p-4">
     <form class="card w-full max-w-sm p-7 shadow-sm" @submit.prevent="submit">
       <div class="mb-6 flex flex-col items-center text-center">
-        <div class="mb-3 flex size-14 items-center justify-center rounded-2xl bg-primary text-white"><Store :size="30" /></div>
-        <h1 class="text-xl font-extrabold">{{ auth.settings.store_name }}</h1>
+        <img v-if="auth.settings.logo_url" :src="auth.settings.logo_url" alt="" class="mb-4 size-20 rounded-2xl object-contain" />
+        <BrandMark v-else class="mb-4 size-20 drop-shadow-md" />
+        <h1 class="text-2xl"><BrandName :name="auth.settings.store_name" /></h1>
         <p class="text-muted">{{ t('Sign in to start selling') }}</p>
       </div>
 

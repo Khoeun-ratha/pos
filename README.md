@@ -255,6 +255,9 @@ flutter run
 Server address on the login screen: Android emulator `http://10.0.2.2:8000`; a real phone `http://<PC IP>:8000`.
 Release build: `flutter build apk --release` (iOS needs a Mac).
 
+App icons (Android, iOS, and the web app's home-screen icon) are drawn from the RATHA MART mark by
+`node mobile/tool/app_icons.mjs` (needs `npm install` in `web/` first); run it again after changing the drawing.
+
 ## Development
 
 | Part | Folder | Run while coding | Tests |

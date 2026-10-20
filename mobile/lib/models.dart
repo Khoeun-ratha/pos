@@ -17,7 +17,7 @@ class User {
 
 class StoreSettings {
   const StoreSettings({
-    this.storeName = 'POS',
+    this.storeName = 'RATHA MART',
     this.storeAddress = '',
     this.storePhone = '',
     this.taxRateBp = 0,
