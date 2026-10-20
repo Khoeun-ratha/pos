@@ -53,6 +53,15 @@ class ApprovalOut(BaseModel):
     manager_name: str
 
 
+class StaffOut(ORM):
+    """Active users, for choosing who takes over a shift or a held order."""
+    id: int
+    username: str
+    full_name: str
+    role: str
+    has_pin: bool
+
+
 class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=50)
     full_name: str = ""
@@ -126,6 +135,7 @@ class StockChangeIn(BaseModel):
     product_id: int
     qty: int  # stock_in: amount received (> 0); adjustment: +/- change
     note: str | None = None
+    location_id: int | None = None  # branch / warehouse; None = main shop
 
 
 class StockInIn(BaseModel):
@@ -134,6 +144,7 @@ class StockInIn(BaseModel):
     unit_cost: int | None = Field(default=None, ge=0)  # price paid per unit; updates the product's average cost
     supplier_id: int | None = None
     note: str | None = Field(default=None, max_length=200)  # e.g. invoice number
+    location_id: int | None = None  # branch / warehouse; None = main shop
 
 
 class WriteOffIn(BaseModel):
@@ -141,12 +152,14 @@ class WriteOffIn(BaseModel):
     qty: int = Field(gt=0)
     reason: Literal["damaged", "expired", "lost", "own_use"]
     note: str | None = Field(default=None, max_length=150)
+    location_id: int | None = None  # branch / warehouse; None = main shop
 
 
 class StockCountIn(BaseModel):
     product_id: int
     counted_qty: int = Field(ge=0)
     note: str | None = None
+    location_id: int | None = None  # branch / warehouse; None = main shop
 
 
 class StockMovementOut(ORM):
@@ -161,7 +174,68 @@ class StockMovementOut(ORM):
     unit_cost: int | None = None
     supplier_id: int | None = None
     supplier_name: str | None = None
+    location_id: int | None = None
+    location_name: str | None = None  # None = main shop
     created_at: datetime
+
+
+# ---------- branches / warehouses and stock transfers ----------
+
+class LocationIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    kind: Literal["warehouse", "branch"] = "warehouse"
+    address: str | None = Field(default=None, max_length=200)
+    is_active: bool = True
+
+
+class LocationOut(ORM):
+    id: int
+    name: str
+    kind: str
+    address: str | None
+    is_active: bool
+
+
+class LocationStockOut(BaseModel):
+    product_id: int
+    qty: int
+
+
+class TransferItemIn(BaseModel):
+    product_id: int
+    qty: int = Field(gt=0)
+
+
+class TransferIn(BaseModel):
+    from_location_id: int | None = None  # None = main shop
+    to_location_id: int | None = None
+    items: list[TransferItemIn] = Field(min_length=1)
+    note: str | None = Field(default=None, max_length=200)
+
+
+class TransferItemOut(ORM):
+    product_id: int
+    product_name: str
+    qty: int
+    unit_cost: int
+
+
+class TransferOut(BaseModel):
+    id: int
+    transfer_no: str
+    from_location_id: int | None
+    from_name: str
+    to_location_id: int | None
+    to_name: str
+    status: str  # in_transit | received | cancelled
+    note: str | None
+    created_by: str
+    created_at: datetime
+    closed_by: str | None
+    closed_at: datetime | None
+    items: list[TransferItemOut]
+    total_qty: int
+    total_cost: int
 
 
 # ---------- suppliers ----------
@@ -321,6 +395,11 @@ class RefundItemIn(BaseModel):
 class ParkedIn(CartIn):
     customer_id: int | None = None
     label: str = Field(default="", max_length=100)
+    assigned_to_id: int | None = None  # send it to this cashier's till
+
+
+class ParkedAssignIn(BaseModel):
+    assigned_to_id: int | None = None  # None = any till
 
 
 class ParkedOut(ORM):
@@ -333,6 +412,8 @@ class ParkedOut(ORM):
     cart: dict
     total: int
     created_at: datetime
+    assigned_to_id: int | None = None
+    assigned_to_name: str | None = None
 
 
 class VoidLineIn(BaseModel):
@@ -377,6 +458,12 @@ class ShiftCloseIn(BaseModel):
     note: str | None = None
 
 
+class ShiftHandoverIn(ShiftCloseIn):
+    """Next cashier takes over the drawer: this shift closes with the count, theirs opens with it."""
+    to_user_id: int
+    pin: str = Field(min_length=1)  # the next cashier's own PIN: they agree with the count
+
+
 class ShiftReport(BaseModel):
     id: int
     user_id: int
@@ -396,6 +483,13 @@ class ShiftReport(BaseModel):
     counted_cash: int | None
     variance: int | None
     note: str | None
+    handed_to_name: str | None = None  # closed by handing the drawer to this cashier
+    handed_from_name: str | None = None  # opened by taking the drawer over from this cashier
+
+
+class ShiftHandoverOut(BaseModel):
+    closed: ShiftReport  # the shift that was handed over
+    opened: ShiftReport  # the next cashier's shift
 
 
 # ---------- reports ----------
@@ -433,7 +527,7 @@ class ReportSummary(BaseModel):
     average_sale: int
     purchases: int  # cost of stock received in the period (when the cost was entered)
     stock_losses: int  # cost of damaged / expired / lost stock written off in the period
-    stock_value: int  # cost of all stock on hand now
+    stock_value: int  # cost of all stock on hand now: main shop, branches / warehouses and transfers on the road
     by_payment: list[NameAmount]
     by_cashier: list[NameAmount]
     by_category: list[NameAmount]
@@ -467,6 +561,22 @@ class SettingsUpdate(BaseModel):
     receipt_footer: str | None = None
     allow_negative_stock: bool | None = None
     loyalty_points_per_usd: int | None = Field(default=None, ge=0)
+
+
+class PermissionOut(BaseModel):
+    key: str
+    label: str
+
+
+class PermissionsOut(BaseModel):
+    permissions: list[PermissionOut]  # every permission there is
+    roles: dict[str, list[str]]  # admin / manager / cashier -> permission keys
+    mine: list[str]  # the logged-in user's permissions
+
+
+class PermissionsUpdate(BaseModel):
+    manager: list[str]
+    cashier: list[str]
 
 
 class AuditOut(ORM):

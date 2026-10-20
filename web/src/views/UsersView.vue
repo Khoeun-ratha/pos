@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { KeyRound, Lock, Power, UserPlus } from 'lucide-vue-next'
+import { KeyRound, Lock, Power, ShieldCheck, UserPlus } from 'lucide-vue-next'
 import { onMounted, reactive, ref } from 'vue'
 
 import { api } from '@/api/client'
@@ -68,7 +68,8 @@ onMounted(load)
 
 <template>
   <div class="mx-auto max-w-5xl space-y-4 p-4 lg:p-6">
-    <div class="flex justify-end">
+    <div class="flex flex-wrap justify-end gap-2">
+      <RouterLink to="/permissions" class="btn-outline"><ShieldCheck :size="18" /> {{ t('Roles & permissions') }}</RouterLink>
       <button class="btn-primary" @click="creating = true"><UserPlus :size="18" /> {{ t('New user') }}</button>
     </div>
     <div class="card overflow-x-auto">
@@ -115,10 +116,14 @@ onMounted(load)
         <div>
           <label class="label">{{ t('Role') }}</label>
           <select v-model="form.role" class="input">
-            <option value="cashier">{{ t('Cashier — sell, shifts, own sales') }}</option>
-            <option value="manager">{{ t('Manager — plus products, stock, reports, approvals') }}</option>
+            <option value="cashier">{{ t('Cashier') }}</option>
+            <option value="manager">{{ t('Manager') }}</option>
             <option value="admin">{{ t('Admin — everything, settings and users') }}</option>
           </select>
+          <p class="mt-1 text-xs text-muted">
+            {{ t('What cashiers and managers may do is set in') }}
+            <RouterLink to="/permissions" class="font-semibold text-primary hover:underline">{{ t('Roles & permissions') }}</RouterLink>
+          </p>
         </div>
       </form>
       <template #footer>

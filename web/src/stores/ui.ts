@@ -20,6 +20,12 @@ export interface PromptOptions {
   password?: boolean
   confirmText?: string
   danger?: boolean
+  /** A list to pick from under the text box (e.g. which cashier); its value comes back as `choice`. */
+  choices?: { value: string; label: string }[]
+  choiceLabel?: string
+  initialChoice?: string
+  /** Only the list, no text box. */
+  noInput?: boolean
 }
 
 interface OpenDialog extends PromptOptions {
@@ -32,6 +38,8 @@ let nextToast = 1
 export const useUi = defineStore('ui', () => {
   const toasts = ref<Toast[]>([])
   const dialog = ref<OpenDialog | null>(null)
+  /** The list value picked in the open dialog (see PromptOptions.choices). */
+  const choice = ref('')
 
   function toast(text: string, kind: Toast['kind'] = 'info') {
     const id = nextToast++
@@ -46,6 +54,13 @@ export const useUi = defineStore('ui', () => {
 
   function prompt(options: PromptOptions): Promise<string | null> {
     return new Promise((resolve) => (dialog.value = { ...options, kind: 'prompt', resolve }))
+  }
+
+  /** A prompt with a list under it. Resolves to the text and the picked value, or null when cancelled. */
+  async function promptChoice(options: PromptOptions): Promise<{ text: string; choice: string } | null> {
+    choice.value = options.initialChoice ?? options.choices?.[0]?.value ?? ''
+    const text = await prompt(options)
+    return text === null ? null : { text, choice: choice.value }
   }
 
   async function confirm(title: string, message: string, confirmText = 'Yes', danger = false) {
@@ -72,5 +87,5 @@ export const useUi = defineStore('ui', () => {
     }
   }
 
-  return { toasts, dialog, toast, error, prompt, confirm, close, managerPin }
+  return { toasts, dialog, choice, toast, error, prompt, promptChoice, confirm, close, managerPin }
 })

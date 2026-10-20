@@ -2,6 +2,15 @@
 // Money is always an integer: USD in cents, KHR in riel. Percent = basis points (1000 = 10%).
 
 export type Role = 'admin' | 'manager' | 'cashier'
+
+/** What a role may do; the admin edits them on the Users page (server/app/permissions.py). */
+export type Permission = 'reports' | 'all_sales' | 'approve' | 'products' | 'inventory' | 'suppliers'
+
+export interface PermissionsInfo {
+  permissions: { key: Permission; label: string }[]
+  roles: Record<Role, Permission[]>
+  mine: Permission[]
+}
 export type DiscountType = 'percent' | 'amount'
 export type PaymentMethod = 'cash' | 'card' | 'khqr'
 export type Currency = 'USD' | 'KHR'
@@ -80,7 +89,46 @@ export interface StockMovement {
   unit_cost: number | null
   supplier_id: number | null
   supplier_name: string | null
+  location_id: number | null
+  /** null = main shop */
+  location_name: string | null
   created_at: string
+}
+
+/** A branch or warehouse. The main shop (where the tills sell) is not one of these: it is `null`. */
+export interface Location {
+  id: number
+  name: string
+  kind: 'warehouse' | 'branch'
+  address: string | null
+  is_active: boolean
+}
+
+export interface Transfer {
+  id: number
+  transfer_no: string
+  from_location_id: number | null
+  from_name: string
+  to_location_id: number | null
+  to_name: string
+  status: 'in_transit' | 'received' | 'cancelled'
+  note: string | null
+  created_by: string
+  created_at: string
+  closed_by: string | null
+  closed_at: string | null
+  items: { product_id: number; product_name: string; qty: number; unit_cost: number }[]
+  total_qty: number
+  total_cost: number
+}
+
+/** Active users, for choosing who takes over a shift or a held order. */
+export interface Staff {
+  id: number
+  username: string
+  full_name: string
+  role: Role
+  has_pin: boolean
 }
 
 export interface Supplier {
@@ -184,6 +232,14 @@ export interface ParkedOrder {
   cart: { items: CartItemIn[]; discount_type: DiscountType | null; discount_value: number }
   total: number
   created_at: string
+  /** sent to this cashier's till (any till can still finish it) */
+  assigned_to_id: number | null
+  assigned_to_name: string | null
+}
+
+export interface ShiftHandover {
+  closed: ShiftReport
+  opened: ShiftReport
 }
 
 export interface ShiftReport {
@@ -205,6 +261,10 @@ export interface ShiftReport {
   counted_cash: number | null
   variance: number | null
   note: string | null
+  /** closed by handing the drawer to this cashier */
+  handed_to_name: string | null
+  /** opened by taking the drawer over from this cashier */
+  handed_from_name: string | null
 }
 
 export interface NameAmount {

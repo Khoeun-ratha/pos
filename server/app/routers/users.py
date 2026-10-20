@@ -3,9 +3,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import audit, require_admin
+from ..deps import audit, get_current_user, require_admin
 from ..models import User
-from ..schemas import UserCreate, UserOut, UserUpdate
+from ..schemas import StaffOut, UserCreate, UserOut, UserUpdate
 from ..security import hash_secret
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -14,6 +14,11 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 @router.get("", response_model=list[UserOut])
 def list_users(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     return db.scalars(select(User).order_by(User.username)).all()
+
+
+@router.get("/staff", response_model=list[StaffOut])
+def list_staff(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    return db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.full_name, User.username)).all()
 
 
 @router.post("", response_model=UserOut, status_code=201)

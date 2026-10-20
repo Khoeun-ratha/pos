@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { api, setToken } from '@/api/client'
-import type { StoreSettings, TokenResponse, User } from '@/api/types'
+import type { Permission, PermissionsInfo, StoreSettings, TokenResponse, User } from '@/api/types'
 
 const DEFAULT_SETTINGS: StoreSettings = {
   store_name: 'POS',
@@ -29,11 +29,19 @@ function stored<T>(key: string, fallback: T): T {
 export const useAuth = defineStore('auth', () => {
   const user = ref<User | null>(stored('pos.user', null))
   const settings = ref<StoreSettings>(stored('pos.settings', DEFAULT_SETTINGS))
+  /** null until loaded from the service; then the role's defaults are assumed. */
+  const permissions = ref<Permission[] | null>(stored('pos.perms', null))
 
   const loggedIn = computed(() => user.value !== null)
-  const isManager = computed(() => user.value?.role === 'admin' || user.value?.role === 'manager')
   const isAdmin = computed(() => user.value?.role === 'admin')
   const displayName = computed(() => user.value?.full_name || user.value?.username || '')
+
+  /** Whether the logged-in user's role may do this (the service checks it too). */
+  function can(perm: Permission) {
+    if (user.value?.role === 'admin') return true
+    if (permissions.value) return permissions.value.includes(perm)
+    return user.value?.role === 'manager' // the defaults, until the service answers
+  }
 
   async function login(username: string, secret: string, usePin: boolean) {
     const body = usePin ? { username, pin: secret } : { username, password: secret }
@@ -41,7 +49,12 @@ export const useAuth = defineStore('auth', () => {
     setToken(result.access_token)
     user.value = result.user
     localStorage.setItem('pos.user', JSON.stringify(result.user))
-    await refreshSettings()
+    await Promise.all([refreshSettings(), refreshPermissions()])
+  }
+
+  async function refreshPermissions() {
+    permissions.value = (await api.get<PermissionsInfo>('/permissions')).mine
+    localStorage.setItem('pos.perms', JSON.stringify(permissions.value))
   }
 
   async function refreshSettings() {
@@ -52,8 +65,10 @@ export const useAuth = defineStore('auth', () => {
   function logout() {
     setToken(null)
     user.value = null
+    permissions.value = null
     localStorage.removeItem('pos.user')
+    localStorage.removeItem('pos.perms')
   }
 
-  return { user, settings, loggedIn, isManager, isAdmin, displayName, login, refreshSettings, logout }
+  return { user, settings, permissions, loggedIn, isAdmin, displayName, can, login, refreshSettings, refreshPermissions, logout }
 })

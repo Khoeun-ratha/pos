@@ -2,14 +2,15 @@
 import { computed, ref } from 'vue'
 
 import { api } from '@/api/client'
-import type { Product, Supplier, WriteOffReason } from '@/api/types'
+import type { Location, Product, Supplier, WriteOffReason } from '@/api/types'
 import AppModal from '@/components/AppModal.vue'
 import { t } from '@/lib/i18n'
 import { parseHundredths, parseWhole, usd } from '@/lib/money'
 import { useUi } from '@/stores/ui'
 
-/** Receive goods (quantity, price paid, supplier) or write off damaged / expired / lost stock. */
-const props = defineProps<{ product: Product; mode: 'receive' | 'write_off'; suppliers: Supplier[] }>()
+/** Receive goods (quantity, price paid, supplier) or write off damaged / expired / lost stock, in the main shop
+ *  or at a branch / warehouse (`location`; `onHand` is the quantity there). */
+const props = defineProps<{ product: Product; mode: 'receive' | 'write_off'; suppliers: Supplier[]; location?: Location | null; onHand?: number }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
 const ui = useUi()
 
@@ -27,13 +28,15 @@ const reasons: { value: WriteOffReason; label: string }[] = [
   { value: 'own_use', label: 'Own use' },
 ]
 const activeSuppliers = computed(() => props.suppliers.filter((s) => s.is_active))
+const have = computed(() => props.onHand ?? props.product.stock_qty)
+const at = computed(() => (props.location ? ` · ${props.location.name}` : ''))
 const amount = computed(() => parseWhole(qty.value))
 const unitCost = computed(() => (cost.value.trim() ? parseHundredths(cost.value) : null))
 /** What the product's average cost becomes after this delivery (same formula as the service). */
 const newCost = computed(() => {
   const q = amount.value
   const c = unitCost.value
-  if (!q || c === null) return null
+  if (!q || c === null || props.location) return null // with other places the service averages over all of them
   const onHand = Math.max(props.product.stock_qty, 0)
   return Math.round((onHand * props.product.cost + q * c) / (onHand + q))
 })
@@ -41,8 +44,7 @@ const newCost = computed(() => {
 async function save() {
   const q = amount.value
   if (!q) return ui.toast(t('Enter a quantity'), 'error')
-  if (props.mode === 'write_off' && q > props.product.stock_qty)
-    return ui.toast(t('Only {n} in stock', { n: Math.max(props.product.stock_qty, 0) }), 'error')
+  if (props.mode === 'write_off' && q > have.value) return ui.toast(t('Only {n} in stock', { n: Math.max(have.value, 0) }), 'error')
   if (props.mode === 'receive' && cost.value.trim() && unitCost.value === null) return ui.toast(t('Check the cost price'), 'error')
   busy.value = true
   try {
@@ -53,10 +55,17 @@ async function save() {
         unit_cost: unitCost.value,
         supplier_id: supplierId.value === '' ? null : supplierId.value,
         note: note.value.trim() || null,
+        location_id: props.location?.id ?? null,
       })
       ui.toast(t('Received {n} × {name}', { n: q, name: props.product.name }), 'success')
     } else {
-      await api.post('/inventory/write-off', { product_id: props.product.id, qty: q, reason: reason.value, note: note.value.trim() || null })
+      await api.post('/inventory/write-off', {
+        product_id: props.product.id,
+        qty: q,
+        reason: reason.value,
+        note: note.value.trim() || null,
+        location_id: props.location?.id ?? null,
+      })
       ui.toast(t('Wrote off {n} × {name}', { n: q, name: props.product.name }), 'success')
     }
     emit('saved')
@@ -69,9 +78,9 @@ async function save() {
 </script>
 
 <template>
-  <AppModal :title="mode === 'receive' ? t('Receive stock: {name}', { name: product.name }) : t('Write off stock: {name}', { name: product.name })" @close="emit('close')">
+  <AppModal :title="(mode === 'receive' ? t('Receive stock: {name}', { name: product.name }) : t('Write off stock: {name}', { name: product.name })) + at" @close="emit('close')">
     <form id="stock-form" class="space-y-4" @submit.prevent="save">
-      <p class="text-sm text-muted">{{ t('In stock now: {n}', { n: product.stock_qty }) }} · {{ t('Cost') }} {{ usd(product.cost) }}</p>
+      <p class="text-sm text-muted">{{ t('In stock now: {n}', { n: have }) }} · {{ t('Cost') }} {{ usd(product.cost) }}</p>
 
       <div v-if="mode === 'write_off'">
         <label class="label">{{ t('Reason') }}</label>

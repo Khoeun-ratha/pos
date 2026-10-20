@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import audit, get_current_user, require_manager
+from ..deps import audit, get_current_user, require_perm
 from ..images import InvalidImage, delete_product_image, save_product_image
 from ..models import Category, Product, StockMovement, User
 from ..schemas import CategoryIn, CategoryOut, ImportResult, ProductCreate, ProductIn, ProductOut
@@ -70,7 +70,7 @@ def list_categories(db: Session = Depends(get_db), _: User = Depends(get_current
 
 
 @router.post("/categories", response_model=CategoryOut, status_code=201)
-def create_category(body: CategoryIn, db: Session = Depends(get_db), user: User = Depends(require_manager)):
+def create_category(body: CategoryIn, db: Session = Depends(get_db), user: User = Depends(require_perm("products"))):
     category = Category(**body.model_dump())
     db.add(category)
     audit(db, user, "category_create", body.name)
@@ -79,7 +79,7 @@ def create_category(body: CategoryIn, db: Session = Depends(get_db), user: User 
 
 
 @router.put("/categories/{category_id}", response_model=CategoryOut)
-def update_category(category_id: int, body: CategoryIn, db: Session = Depends(get_db), user: User = Depends(require_manager)):
+def update_category(category_id: int, body: CategoryIn, db: Session = Depends(get_db), user: User = Depends(require_perm("products"))):
     category = db.get(Category, category_id)
     if category is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
@@ -90,7 +90,7 @@ def update_category(category_id: int, body: CategoryIn, db: Session = Depends(ge
 
 
 @router.delete("/categories/{category_id}", status_code=204)
-def delete_category(category_id: int, db: Session = Depends(get_db), user: User = Depends(require_manager)):
+def delete_category(category_id: int, db: Session = Depends(get_db), user: User = Depends(require_perm("products"))):
     category = db.get(Category, category_id)
     if category is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
@@ -144,7 +144,7 @@ def product_by_barcode(code: str, db: Session = Depends(get_db), _: User = Depen
 
 
 @router.get("/products/export")
-def export_products(db: Session = Depends(get_db), _: User = Depends(require_manager)):
+def export_products(db: Session = Depends(get_db), _: User = Depends(require_perm("products"))):
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(CSV_COLUMNS)
@@ -162,7 +162,7 @@ def export_products(db: Session = Depends(get_db), _: User = Depends(require_man
 
 
 @router.post("/products/import", response_model=ImportResult)
-async def import_products(file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(require_manager)):
+async def import_products(file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(require_perm("products"))):
     """CSV with the same columns as the export. Prices in dollars (e.g. 1.25). Matches existing rows by SKU, then barcode."""
     text = (await file.read()).decode("utf-8-sig")
     created = updated = 0
@@ -237,7 +237,7 @@ def get_product(product_id: int, db: Session = Depends(get_db), _: User = Depend
 
 
 @router.post("/products", response_model=ProductOut, status_code=201)
-def create_product(body: ProductCreate, db: Session = Depends(get_db), user: User = Depends(require_manager)):
+def create_product(body: ProductCreate, db: Session = Depends(get_db), user: User = Depends(require_perm("products"))):
     data = body.model_dump()
     data["sku"], data["barcode"] = _clean(data["sku"]), _clean(data["barcode"])
     product = Product(**data)
@@ -256,7 +256,7 @@ def create_product(body: ProductCreate, db: Session = Depends(get_db), user: Use
 
 
 @router.put("/products/{product_id}", response_model=ProductOut)
-def update_product(product_id: int, body: ProductIn, db: Session = Depends(get_db), user: User = Depends(require_manager)):
+def update_product(product_id: int, body: ProductIn, db: Session = Depends(get_db), user: User = Depends(require_perm("products"))):
     """Stock is not edited here: use the inventory endpoints so every change is recorded."""
     product = db.get(Product, product_id)
     if product is None:
@@ -275,7 +275,7 @@ def update_product(product_id: int, body: ProductIn, db: Session = Depends(get_d
 
 
 @router.delete("/products/{product_id}", status_code=204)
-def deactivate_product(product_id: int, db: Session = Depends(get_db), user: User = Depends(require_manager)):
+def deactivate_product(product_id: int, db: Session = Depends(get_db), user: User = Depends(require_perm("products"))):
     """Products are deactivated, never deleted, so old receipts and reports stay correct."""
     product = db.get(Product, product_id)
     if product is None:
@@ -286,7 +286,7 @@ def deactivate_product(product_id: int, db: Session = Depends(get_db), user: Use
 
 
 @router.post("/products/{product_id}/image", response_model=ProductOut)
-async def upload_product_image(product_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(require_manager)):
+async def upload_product_image(product_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(require_perm("products"))):
     """JPG, PNG or WebP photo, up to 8 MB. Stored shrunk to 800 px; replaces any previous photo."""
     product = db.get(Product, product_id)
     if product is None:
@@ -305,7 +305,7 @@ async def upload_product_image(product_id: int, file: UploadFile = File(...), db
 
 
 @router.delete("/products/{product_id}/image", response_model=ProductOut)
-def remove_product_image(product_id: int, db: Session = Depends(get_db), user: User = Depends(require_manager)):
+def remove_product_image(product_id: int, db: Session = Depends(get_db), user: User = Depends(require_perm("products"))):
     product = db.get(Product, product_id)
     if product is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")

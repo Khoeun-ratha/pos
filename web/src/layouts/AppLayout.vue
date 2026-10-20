@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   ChartColumn,
+  ChevronDown,
   ChevronsLeft,
   ChevronsRight,
   Clock,
@@ -17,12 +18,14 @@ import {
   Truck,
   UserCog,
   Users,
+  Warehouse,
 } from 'lucide-vue-next'
-import { computed, onMounted, ref, watch } from 'vue'
+import { type Component, computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { lang, setLang, t } from '@/lib/i18n'
 import { khr } from '@/lib/money'
+import type { Permission } from '@/api/types'
 import { useAuth } from '@/stores/auth'
 import { useShift } from '@/stores/shift'
 import { useUi } from '@/stores/ui'
@@ -38,21 +41,78 @@ const drawerOpen = ref(false)
 watch(collapsed, (v) => localStorage.setItem('pos.menu', v ? 'collapsed' : 'open'))
 watch(() => route.fullPath, () => (drawerOpen.value = false))
 
+type MenuLink = { to: string; label: string; perm?: Permission | Permission[]; admin?: boolean }
+type MenuItem = MenuLink & { icon: Component; children?: MenuLink[] }
+
+const MENU: MenuItem[] = [
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, perm: 'reports' },
+  { to: '/sell', label: 'POS', icon: ShoppingCart },
+  { to: '/sales', label: 'Sales', icon: ReceiptText },
+  { to: '/shift', label: 'Shift', icon: Clock },
+  { to: '/reports', label: 'Reports', icon: ChartColumn, perm: 'reports' },
+  {
+    to: '/products',
+    label: 'Products',
+    icon: Package,
+    children: [
+      { to: '/products', label: 'Product list', perm: 'products' },
+      { to: '/labels', label: 'Barcode & QR labels', perm: ['products', 'inventory'] },
+    ],
+  },
+  {
+    to: '/inventory',
+    label: 'Inventory',
+    icon: Warehouse,
+    perm: 'inventory',
+    children: [
+      { to: '/inventory', label: 'Stock levels' },
+      { to: '/inventory/low', label: 'Low stock' },
+      { to: '/inventory/movements', label: 'Stock movements' },
+      { to: '/inventory/transfers', label: 'Stock transfers' },
+      { to: '/inventory/locations', label: 'Branches & warehouses' },
+    ],
+  },
+  { to: '/suppliers', label: 'Suppliers', icon: Truck, perm: 'suppliers' },
+  { to: '/customers', label: 'Customers', icon: Users },
+  { to: '/settings', label: 'Store settings', icon: Store },
+  {
+    to: '/users',
+    label: 'Users & roles',
+    icon: UserCog,
+    admin: true,
+    children: [
+      { to: '/users', label: 'Users' },
+      { to: '/permissions', label: 'Roles & permissions' },
+    ],
+  },
+  { to: '/activity', label: 'Activity log', icon: History, admin: true },
+]
+
+function allowed(link: MenuLink) {
+  const perms = link.perm === undefined ? [] : Array.isArray(link.perm) ? link.perm : [link.perm]
+  return (!perms.length || perms.some((p) => auth.can(p))) && (!link.admin || auth.isAdmin)
+}
+
+/** The menu this user may see; a group whose sub-items are all hidden disappears too. */
 const items = computed(() =>
-  [
-    { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, manager: true },
-    { to: '/sell', label: 'POS', icon: ShoppingCart },
-    { to: '/sales', label: 'Sales', icon: ReceiptText },
-    { to: '/shift', label: 'Shift', icon: Clock },
-    { to: '/reports', label: 'Reports', icon: ChartColumn, manager: true },
-    { to: '/products', label: 'Products', icon: Package, manager: true },
-    { to: '/suppliers', label: 'Suppliers', icon: Truck, manager: true },
-    { to: '/customers', label: 'Customers', icon: Users },
-    { to: '/settings', label: 'Store settings', icon: Store },
-    { to: '/users', label: 'Users', icon: UserCog, admin: true },
-    { to: '/activity', label: 'Activity log', icon: History, admin: true },
-  ].filter((i) => (!i.manager || auth.isManager) && (!i.admin || auth.isAdmin)),
+  MENU.filter(allowed)
+    .map((i) => (i.children ? { ...i, children: i.children.filter(allowed) } : i))
+    .filter((i) => !i.children || i.children.length)
+    .map((i) => (i.children ? { ...i, to: i.children[0]!.to } : i)),
 )
+
+/** Groups opened by hand; the group of the page shown is always open. */
+const opened = ref<Set<string>>(new Set())
+function groupActive(item: MenuItem) {
+  return !!item.children?.some((c) => route.path === c.to || route.path.startsWith(`${c.to}/`))
+}
+function toggle(item: MenuItem) {
+  const next = new Set(opened.value)
+  if (next.has(item.label)) next.delete(item.label)
+  else next.add(item.label)
+  opened.value = next
+}
+const isOpen = (item: MenuItem) => groupActive(item) || opened.value.has(item.label)
 
 async function logout() {
   if (!(await ui.confirm(t('Log out'), t('Log out of this device?'), t('Log out')))) return
@@ -63,6 +123,7 @@ async function logout() {
 onMounted(() => {
   shift.refresh().catch(ui.error)
   auth.refreshSettings().catch(() => {}) // keep the saved settings if the service is busy
+  auth.refreshPermissions().catch(() => {})
 })
 </script>
 
@@ -84,17 +145,42 @@ onMounted(() => {
       </div>
 
       <nav class="flex-1 space-y-1 overflow-y-auto p-3">
-        <RouterLink
-          v-for="item in items"
-          :key="item.to"
-          :to="item.to"
-          :title="collapsed ? t(item.label) : undefined"
-          class="flex items-center gap-3 rounded-xl px-3.5 py-2.5 font-medium text-ink transition hover:bg-page"
-          active-class="!bg-primary-soft !text-primary font-bold"
-        >
-          <component :is="item.icon" :size="20" class="shrink-0" />
-          <span v-if="!collapsed || drawerOpen" class="truncate">{{ t(item.label) }}</span>
-        </RouterLink>
+        <template v-for="item in items" :key="item.label">
+          <!-- group with sub-items; with the menu collapsed it is one icon that opens the first sub-item -->
+          <template v-if="item.children && (!collapsed || drawerOpen)">
+            <button
+              type="button"
+              :class="['flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 font-medium transition hover:bg-page', groupActive(item) ? 'text-primary' : 'text-ink']"
+              :aria-expanded="isOpen(item)"
+              @click="toggle(item)"
+            >
+              <component :is="item.icon" :size="20" class="shrink-0" />
+              <span class="flex-1 truncate text-left">{{ t(item.label) }}</span>
+              <ChevronDown :size="17" :class="['shrink-0 text-muted transition', isOpen(item) && 'rotate-180']" />
+            </button>
+            <div v-if="isOpen(item)" class="ml-[1.4rem] space-y-0.5 border-l border-line pl-3">
+              <RouterLink
+                v-for="child in item.children"
+                :key="child.to"
+                :to="child.to"
+                class="block truncate rounded-lg px-3 py-2 text-sm font-medium text-ink transition hover:bg-page"
+                exact-active-class="!bg-primary-soft !text-primary font-bold"
+              >
+                {{ t(child.label) }}
+              </RouterLink>
+            </div>
+          </template>
+          <RouterLink
+            v-else
+            :to="item.to"
+            :title="collapsed ? t(item.label) : undefined"
+            :class="['flex items-center gap-3 rounded-xl px-3.5 py-2.5 font-medium text-ink transition hover:bg-page', groupActive(item) && '!bg-primary-soft !text-primary font-bold']"
+            active-class="!bg-primary-soft !text-primary font-bold"
+          >
+            <component :is="item.icon" :size="20" class="shrink-0" />
+            <span v-if="!collapsed || drawerOpen" class="truncate">{{ t(item.label) }}</span>
+          </RouterLink>
+        </template>
       </nav>
 
       <div class="border-t border-line p-3">

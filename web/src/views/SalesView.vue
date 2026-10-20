@@ -71,8 +71,8 @@ async function refund() {
     ui.toast('Choose at least one item and enter a reason', 'error')
     return
   }
-  const pin = auth.isManager ? null : await ui.managerPin('Approve refund')
-  if (!auth.isManager && !pin) return
+  const pin = auth.can('approve') ? null : await ui.managerPin('Approve refund')
+  if (!auth.can('approve') && !pin) return
   try {
     const result = await api.post<{ amount: number; sale: Sale }>(`/sales/${sale.id}/refund`, { items, reason: refundReason.value.trim(), manager_pin: pin })
     selected.value = result.sale
@@ -107,7 +107,7 @@ onMounted(load)
           <input v-model="query" class="input pl-10" :placeholder="t('Receipt number')" />
         </div>
         <div class="flex justify-between text-sm">
-          <span class="text-muted">{{ filtered.length }} sale(s){{ auth.isManager ? '' : ' by you' }}</span>
+          <span class="text-muted">{{ filtered.length }} sale(s){{ auth.can('all_sales') ? '' : ' by you' }}</span>
           <span class="font-bold">{{ usd(dayTotal) }}</span>
         </div>
       </div>

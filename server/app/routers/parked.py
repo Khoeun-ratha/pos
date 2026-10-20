@@ -12,7 +12,7 @@ from .. import store_settings
 from ..database import get_db
 from ..deps import approve, audit, get_current_user
 from ..models import Customer, ParkedOrder, User
-from ..schemas import ParkedIn, ParkedOut
+from ..schemas import ParkedAssignIn, ParkedIn, ParkedOut
 from .sales import price_cart
 
 router = APIRouter(prefix="/api/parked", tags=["sales"])
@@ -27,6 +27,7 @@ def _out(order: ParkedOrder) -> ParkedOut:
         id=order.id, label=order.label, user_id=order.user_id, cashier_name=order.cashier_name,
         customer_id=order.customer_id, customer_name=order.customer_name, cart=json.loads(order.cart),
         total=order.total, created_at=order.created_at,
+        assigned_to_id=order.assigned_to_id, assigned_to_name=order.assigned_to_name,
     )
 
 
@@ -42,15 +43,39 @@ def list_parked(db: Session = Depends(get_db), _: User = Depends(get_current_use
     return [_out(o) for o in db.scalars(select(ParkedOrder).order_by(ParkedOrder.id))]
 
 
+def _staff(db: Session, user_id: int | None) -> User | None:
+    if user_id is None:
+        return None
+    staff = db.get(User, user_id)
+    if staff is None or not staff.is_active:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cashier not found")
+    return staff
+
+
 @router.post("", response_model=ParkedOut, status_code=201)
 def park(body: ParkedIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     _, _, totals = price_cart(db, body, store_settings.load(db))
     if body.customer_id is not None and db.get(Customer, body.customer_id) is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Customer not found")
+    to = _staff(db, body.assigned_to_id)
     cart = body.model_dump(include={"items", "discount_type", "discount_value"})
     order = ParkedOrder(user_id=user.id, customer_id=body.customer_id, label=body.label.strip(),
-                        cart=json.dumps(cart), total=totals.total)
+                        cart=json.dumps(cart), total=totals.total, assigned_to_id=to.id if to else None)
     db.add(order)
+    if to and to.id != user.id:
+        audit(db, user, "order_transfer", f"Held order (${totals.total / 100:.2f}) sent to {to.username}")
+    db.commit()
+    db.refresh(order)
+    return _out(order)
+
+
+@router.post("/{order_id}/assign", response_model=ParkedOut)
+def assign(order_id: int, body: ParkedAssignIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Passes a held order to another cashier's till (or back to any till)."""
+    order = _get(db, order_id)
+    to = _staff(db, body.assigned_to_id)
+    order.assigned_to_id = to.id if to else None
+    audit(db, user, "order_transfer", f"Held order (${order.total / 100:.2f}) sent to {to.username if to else 'any till'}")
     db.commit()
     db.refresh(order)
     return _out(order)

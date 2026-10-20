@@ -105,7 +105,7 @@ async function addByCode(code: string, qty = typed.value.qty) {
   if (product) return void add(product, qty)
   beep('error')
   query.value = ''
-  if (auth.isManager) {
+  if (auth.can('products')) {
     if (await ui.confirm('Unknown barcode', t('No product has barcode {code}. Add it as a new product?', { code }), 'New product')) {
       router.push({ path: '/products', query: { barcode: code } })
     }
@@ -204,13 +204,20 @@ function resume(order: ParkedOrder) {
   cart.resume(order, products.value)
 }
 
+// held orders from the other tills (and ones sent to this cashier) show up without a reload
+let heldTimer: ReturnType<typeof setInterval> | undefined
+
 onMounted(() => {
   load()
   cart.loadHeld().catch(() => {})
+  heldTimer = setInterval(() => document.visibilityState === 'visible' && cart.loadHeld().catch(() => {}), 15_000)
   focusSearch()
   window.addEventListener('keydown', onKey)
 })
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+onBeforeUnmount(() => {
+  clearInterval(heldTimer)
+  window.removeEventListener('keydown', onKey)
+})
 </script>
 
 <template>

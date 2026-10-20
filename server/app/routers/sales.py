@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import store_settings
 from ..database import get_db
-from ..deps import approve, audit, get_current_user, is_manager
+from ..deps import approve, audit, get_current_user, sees_all_sales
 from ..models import Customer, Product, Refund, RefundItem, Sale, SaleItem, Payment, Shift, User, now
 from ..pricing import CartTotals, LineInput, calculate, div_round, khr_to_usd_cents, share_of, usd_cents_to_khr
 from ..receipt import render
@@ -233,7 +233,7 @@ def list_sales(
     user: User = Depends(get_current_user),
 ):
     query = select(Sale)
-    if not is_manager(user):
+    if not sees_all_sales(db, user):
         query = query.where(Sale.user_id == user.id)
     if date_from:
         query = query.where(Sale.created_at >= datetime.combine(date_from, time.min))
@@ -246,7 +246,7 @@ def list_sales(
 
 def _visible_sale(db: Session, sale_id: int, user: User) -> Sale:
     sale = db.get(Sale, sale_id)
-    if sale is None or (not is_manager(user) and sale.user_id != user.id):
+    if sale is None or (sale.user_id != user.id and not sees_all_sales(db, user)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Sale not found")
     return sale
 

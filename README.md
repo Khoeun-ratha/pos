@@ -93,7 +93,13 @@ All three parts calculate prices the same way (`server/app/pricing.py`, `web/src
 
 ## Features
 
-- Login with password or quick PIN; roles **admin / manager / cashier**
+- Login with password or quick PIN; roles **admin / manager / cashier**. The admin chooses what managers and
+  cashiers may do (**Users & roles → Roles & permissions**): dashboard / reports, see every cashier's sales,
+  approve discounts / voids / refunds, products, inventory, suppliers. The service enforces it; the admin always has
+  everything. The defaults are the old fixed roles (manager: all of it, cashier: none of it)
+- Menu with sub-menus: **Products** (Product list, Barcode & QR labels), **Inventory** (Stock levels, Low stock,
+  Stock movements, Stock transfers, Branches & warehouses), **Users & roles** (Users, Roles & permissions).
+  Each person only sees what they may use
 - Sell screen: product cards, category pills, search, USB barcode scanner (web) / camera scanner (mobile)
 - Barcode scanning like a supermarket till, the same on the web app and the mobile app:
   - USB / Bluetooth scanner works wherever the cursor is (even with the Khmer keyboard on) and never presses the
@@ -107,10 +113,12 @@ All three parts calculate prices the same way (`server/app/pricing.py`, `web/src
   - UPC-A (12 digits) and EAN-13 (13 digits, leading 0) of the same product both match; SKUs match too
   - unknown barcode: a manager can create the product right away (the barcode is filled in)
   - keys: `F2` search, `F4` hold, `F12` pay, `Esc` clear search (mobile app too, with a keyboard)
-- Hold / resume orders on every till, web and phones alike (held orders are kept on the service)
-- Barcode / QR labels (web, Products page): the barcode button on a product, or **Print labels** for every product
-  listed. Barcode or QR code, with name, price (USD and riel) and shop name; label printer 50 × 30 / 40 × 30 mm,
-  58 mm receipt roll, or A4 sticker sheets (3 × 8). A product without a barcode gets a new in-store EAN-13
+- Hold / resume orders on every till, web and phones alike (held orders are kept on the service). A held order can
+  be **sent to another cashier's till** (it shows there as "for you"), or passed on later with the send button
+- Barcode / QR labels (web, **Products → Barcode & QR labels**): tick or scan products and print; also the barcode
+  button on a product, or **Print labels** for every product listed. Barcode or QR code, with name, price (USD and riel) and shop name; label printer 50 × 30 / 40 × 30 mm,
+  58 mm receipt roll (one label per page), or **A4 paper in rows × columns** you choose (2 × 5 up to 6 × 20, with a
+  page preview, cut lines, and "skip places already used" for part-used sticker sheets). A product without a barcode gets a new in-store EAN-13
   (starting with 200, numbers kept for shops) with one click, also in the product form
 - Discounts per item and per order (cashiers need a **manager PIN**), VAT inclusive or exclusive
 - Payments: cash **USD and KHR** (change shown in both), card, KHQR, split payments
@@ -118,9 +126,19 @@ All three parts calculate prices the same way (`server/app/pricing.py`, `web/src
 - Void items with manager PIN
 - Refunds (full or partial) with manager approval; stock goes back automatically
 - Shifts: opening cash, cash in/out, close with counted USD + riel, over/short report (printable)
-- Inventory: receive stock with cost price and supplier (product cost becomes the average), write off
+  - **Hand over to next cashier** without emptying the drawer: count together, the next cashier types their own PIN;
+    the first shift closes with that count (over / short is theirs) and the next one opens with exactly that cash
+  - a manager can count and close a shift its cashier left open; cashiers see their own past shifts and reprint them
+- Inventory (web, **Inventory** menu): stock value at cost and selling price, low / out of stock, scan a barcode to
+  receive that product; receive stock with cost price and supplier (product cost becomes the average), write off
   damaged / expired / lost stock, stock counts, movement history, low-stock alerts, CSV import / export
 - Suppliers: list, and every delivery received from each one
+- **Branches & warehouses** (web, Inventory menu): each keeps its own stock; pick the place at the top of Stock levels
+  to receive deliveries, write off or count there. The tills sell from the main shop (the store itself)
+- **Stock transfers** between the main shop and branches / warehouses: search or scan the products, **send** (the
+  stock leaves at once and is "on the road"), then **receive** at the other end, or cancel to put it back. Never
+  more than the source has; numbered TRyyyymmdd-0001; printable delivery note; in the stock history of both places.
+  Stock value in Reports counts every place and the goods on the road
 - Customers with loyalty points and purchase history
 - Reports: net sales, profit, daily chart, top products, categories, payment methods, cashiers,
   stock received, stock losses, stock value; **Export Excel** (summary, days, products, every receipt, losses)
@@ -136,6 +154,7 @@ All three parts calculate prices the same way (`server/app/pricing.py`, `web/src
 3. **Hold** (optional): the order is parked on the service with a name ("Lady in red"). It survives a page
    refresh, shows on every till, and disappears from the list as soon as one till resumes it.
    Throwing a held order away is a void. Closing a shift warns about held orders still waiting.
+   **Send to** another cashier: the order shows first on their till, marked "for you" (any till can still finish it).
 4. **Pay**: the till first re-checks prices with the service, so the customer pays exactly what is recorded.
    Cash USD / riel (change in both), card or KHQR (optional approval code / transaction ID), or split.
    Retrying after a network error never records the sale twice (each order has one id).
@@ -144,6 +163,8 @@ All three parts calculate prices the same way (`server/app/pricing.py`, `web/src
 6. **Refund** (manager PIN): stock goes back, points are taken back, money returns the way it was paid
    (only the cash part leaves the drawer, and that needs an open shift).
 7. **Close the shift**: count USD and riel; the report shows expected cash and over / short.
+   **Cashier change** instead: *Hand over to next cashier*, count together, the next cashier types their PIN and
+   carries on with the same drawer. A shift someone forgot is closed by a manager from the Shift page.
 
 **Phone offline:** the sale is kept on the phone and sent later. The service then keeps the phone's prices and
 exchange rate, puts it in the shift that was open at that time, and never refuses it (the customer already paid);

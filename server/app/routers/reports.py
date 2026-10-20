@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 
 from .. import store_settings
 from ..database import get_db
-from ..deps import require_manager
+from ..deps import require_perm
 from ..excel import report_workbook
-from ..models import Product, Refund, RefundItem, Sale, SaleItem, StockMovement, User
+from ..models import LocationStock, Product, Refund, RefundItem, Sale, SaleItem, StockMovement, StockTransfer, StockTransferItem, User
 from ..pricing import allocate, share_of
 from ..schemas import DayAmount, HourAmount, NameAmount, ReportSummary
 
@@ -33,14 +33,14 @@ def _period(date_from: date | None, date_to: date | None) -> tuple[date, date, d
 
 @router.get("/summary", response_model=ReportSummary)
 def summary(date_from: date | None = None, date_to: date | None = None,
-            db: Session = Depends(get_db), _: User = Depends(require_manager)):
+            db: Session = Depends(get_db), _: User = Depends(require_perm("reports"))):
     """Sales in the date range (inclusive). All amounts are USD cents."""
     return build_summary(db, date_from, date_to)
 
 
 @router.get("/export")
 def export(date_from: date | None = None, date_to: date | None = None,
-           db: Session = Depends(get_db), _: User = Depends(require_manager)):
+           db: Session = Depends(get_db), _: User = Depends(require_perm("reports"))):
     """The same report as an Excel file, with every product, every receipt and the stock losses."""
     report = build_summary(db, date_from, date_to, top=None)
     _, _, start, end = _period(date_from, date_to)
@@ -138,6 +138,17 @@ def build_summary(db: Session, date_from: date | None, date_to: date | None, top
     stock_value = db.scalar(
         select(func.coalesce(func.sum(Product.stock_qty * Product.cost), 0))
         .where(Product.is_active.is_(True), Product.track_stock.is_(True), Product.stock_qty > 0)
+    )
+    # plus branches / warehouses, and goods on the road between them
+    stock_value += db.scalar(
+        select(func.coalesce(func.sum(LocationStock.qty * Product.cost), 0))
+        .join(Product, Product.id == LocationStock.product_id)
+        .where(Product.is_active.is_(True), Product.track_stock.is_(True), LocationStock.qty > 0)
+    )
+    stock_value += db.scalar(
+        select(func.coalesce(func.sum(StockTransferItem.qty * StockTransferItem.unit_cost), 0))
+        .join(StockTransfer, StockTransfer.id == StockTransferItem.transfer_id)
+        .where(StockTransfer.status == "in_transit")
     )
 
     def used(rows: dict[str, dict]) -> dict[str, dict]:

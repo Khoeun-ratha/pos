@@ -101,8 +101,12 @@ class Shift(Base):
     expected_cash: Mapped[int | None] = mapped_column(Integer, nullable=True)
     counted_cash: Mapped[int | None] = mapped_column(Integer, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # cashier change without closing the till: this shift was handed to that user / came from that shift
+    handed_to_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    handed_from_id: Mapped[int | None] = mapped_column(ForeignKey("shifts.id"), nullable=True)
 
-    user: Mapped[User] = relationship(lazy="joined")
+    user: Mapped[User] = relationship(lazy="joined", foreign_keys=[user_id])
+    handed_to: Mapped[User | None] = relationship(lazy="joined", foreign_keys=[handed_to_id])
 
 
 class CashMovement(Base):
@@ -202,9 +206,16 @@ class ParkedOrder(Base):
     cart: Mapped[str] = mapped_column(Text)  # JSON: items + order discount, as sent to POST /api/sales
     total: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    # sent to this cashier's till (any till can still finish it)
+    assigned_to_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
-    user: Mapped[User] = relationship(lazy="joined")
+    user: Mapped[User] = relationship(lazy="joined", foreign_keys=[user_id])
     customer: Mapped[Customer | None] = relationship(lazy="joined")
+    assigned_to: Mapped[User | None] = relationship(lazy="joined", foreign_keys=[assigned_to_id])
+
+    @property
+    def assigned_to_name(self) -> str | None:
+        return (self.assigned_to.full_name or self.assigned_to.username) if self.assigned_to else None
 
     @property
     def cashier_name(self) -> str:
@@ -248,16 +259,22 @@ class StockMovement(Base):
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id", ondelete="CASCADE"), index=True)
     change: Mapped[int] = mapped_column(Integer)
     balance: Mapped[int] = mapped_column(Integer)
-    kind: Mapped[str] = mapped_column(String(20))  # sale | refund | stock_in | adjustment | count | write_off
+    kind: Mapped[str] = mapped_column(String(20))  # sale | refund | stock_in | adjustment | count | write_off | transfer_out | transfer_in
     reference: Mapped[str | None] = mapped_column(String(50), nullable=True)
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
     unit_cost: Mapped[int | None] = mapped_column(Integer, nullable=True)  # stock_in: price paid; write_off: cost lost
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id"), nullable=True, index=True)  # None = main shop
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
 
     product: Mapped[Product] = relationship(lazy="joined")
     supplier: Mapped[Supplier | None] = relationship(lazy="joined")
+    location: Mapped["Location | None"] = relationship(lazy="joined")
+
+    @property
+    def location_name(self) -> str | None:
+        return self.location.name if self.location else None
 
     @property
     def product_name(self) -> str:
@@ -266,6 +283,71 @@ class StockMovement(Base):
     @property
     def supplier_name(self) -> str | None:
         return self.supplier.name if self.supplier else None
+
+
+class Location(Base):
+    """A branch or warehouse besides the main shop. The main shop (where the tills sell) has no row:
+    its stock is Product.stock_qty. Other locations keep their stock in LocationStock."""
+
+    __tablename__ = "locations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    kind: Mapped[str] = mapped_column(String(20), default="warehouse")  # warehouse | branch
+    address: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class LocationStock(Base):
+    __tablename__ = "location_stock"
+
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id", ondelete="CASCADE"), primary_key=True)
+    qty: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class StockTransfer(Base):
+    """Goods moved between the main shop and a branch / warehouse. Sending takes the stock off the source
+    (it is on the road); receiving puts it on the destination; cancelling before that puts it back."""
+
+    __tablename__ = "stock_transfers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    transfer_no: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+    from_location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id"), nullable=True)  # None = main shop
+    to_location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="in_transit")  # in_transit | received | cancelled
+    note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+    closed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)  # received or cancelled by
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    from_location: Mapped[Location | None] = relationship(lazy="joined", foreign_keys=[from_location_id])
+    to_location: Mapped[Location | None] = relationship(lazy="joined", foreign_keys=[to_location_id])
+    created_by: Mapped[User] = relationship(lazy="joined", foreign_keys=[created_by_id])
+    closed_by: Mapped[User | None] = relationship(lazy="joined", foreign_keys=[closed_by_id])
+    items: Mapped[list["StockTransferItem"]] = relationship(
+        back_populates="transfer", cascade="all, delete-orphan", lazy="selectin", order_by="StockTransferItem.id"
+    )
+
+
+class StockTransferItem(Base):
+    __tablename__ = "stock_transfer_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    transfer_id: Mapped[int] = mapped_column(ForeignKey("stock_transfers.id", ondelete="CASCADE"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    qty: Mapped[int] = mapped_column(Integer)
+    unit_cost: Mapped[int] = mapped_column(Integer, default=0)  # product cost when sent
+
+    transfer: Mapped[StockTransfer] = relationship(back_populates="items")
+    product: Mapped[Product] = relationship(lazy="joined")
+
+    @property
+    def product_name(self) -> str:
+        return self.product.name
 
 
 class Setting(Base):

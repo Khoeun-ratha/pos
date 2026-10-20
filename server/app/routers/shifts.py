@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import store_settings
+from .. import permissions, store_settings
 from ..database import get_db
-from ..deps import audit, get_current_user, is_manager, require_manager
+from ..deps import audit, get_current_user, require_perm, sees_all_sales
 from ..models import CashMovement, Refund, Sale, Shift, User, now
 from ..pricing import khr_to_usd_cents
-from ..schemas import CashMovementIn, ShiftCloseIn, ShiftOpenIn, ShiftReport
+from ..security import verify_secret
+from ..schemas import CashMovementIn, ShiftCloseIn, ShiftHandoverIn, ShiftHandoverOut, ShiftOpenIn, ShiftReport
 from .sales import open_shift_of
 
 router = APIRouter(prefix="/api/shifts", tags=["shifts"])
@@ -30,6 +31,7 @@ def report(db: Session, shift: Shift) -> ShiftReport:
     expected = shift.opening_cash + by_method["cash"] + cash_in - cash_out - cash_refunds
     if shift.closed_at is not None and shift.expected_cash is not None:
         expected = shift.expected_cash
+    handed_from = db.get(Shift, shift.handed_from_id) if shift.handed_from_id else None
 
     return ShiftReport(
         id=shift.id,
@@ -50,6 +52,8 @@ def report(db: Session, shift: Shift) -> ShiftReport:
         counted_cash=shift.counted_cash,
         variance=None if shift.counted_cash is None else shift.counted_cash - expected,
         note=shift.note,
+        handed_to_name=(shift.handed_to.full_name or shift.handed_to.username) if shift.handed_to else None,
+        handed_from_name=(handed_from.user.full_name or handed_from.user.username) if handed_from else None,
     )
 
 
@@ -89,28 +93,83 @@ def cash_movement(body: CashMovementIn, db: Session = Depends(get_db), user: Use
     return report(db, shift)
 
 
-@router.post("/current/close", response_model=ShiftReport)
-def close_shift(body: ShiftCloseIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    shift = _require_open(db, user)
+def _count_and_close(db: Session, shift: Shift, body: ShiftCloseIn) -> None:
     rate = store_settings.get_int(store_settings.load(db), "exchange_rate")
-    live = report(db, shift)
-    shift.expected_cash = live.expected_cash
+    shift.expected_cash = report(db, shift).expected_cash
     shift.counted_cash = body.counted_usd + khr_to_usd_cents(body.counted_khr, rate)
     shift.closed_at = now()
     shift.note = body.note
+
+
+@router.post("/current/close", response_model=ShiftReport)
+def close_shift(body: ShiftCloseIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    shift = _require_open(db, user)
+    _count_and_close(db, shift, body)
     audit(db, user, "shift_close", f"expected ${shift.expected_cash / 100:.2f} counted ${shift.counted_cash / 100:.2f}")
     db.commit()
     return report(db, shift)
 
 
+@router.post("/current/handover", response_model=ShiftHandoverOut)
+def handover(body: ShiftHandoverIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Cashier change without emptying the drawer: this shift closes with the counted cash (over / short is
+    on the outgoing cashier) and the next cashier's shift opens with exactly that cash. The next cashier
+    types their own PIN to agree with the count."""
+    shift = _require_open(db, user)
+    nxt = db.get(User, body.to_user_id)
+    if nxt is None or not nxt.is_active:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose who takes over the drawer")
+    if nxt.id == user.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose another cashier to take over")
+    if nxt.pin_hash is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{nxt.username} has no PIN yet: ask the admin to set one")
+    if not verify_secret(body.pin, nxt.pin_hash):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, f"Wrong PIN for {nxt.username}")
+    if open_shift_of(db, nxt):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{nxt.username} already has an open shift")
+
+    _count_and_close(db, shift, body)
+    shift.handed_to = nxt
+    opened = Shift(user_id=nxt.id, opening_cash=shift.counted_cash, handed_from_id=shift.id)
+    db.add(opened)
+    audit(db, user, "shift_handover",
+          f"to {nxt.username}: expected ${shift.expected_cash / 100:.2f} counted ${shift.counted_cash / 100:.2f}")
+    db.commit()
+    db.refresh(opened)
+    return ShiftHandoverOut(closed=report(db, shift), opened=report(db, opened))
+
+
 @router.get("", response_model=list[ShiftReport])
-def list_shifts(limit: int = Query(50, le=500), db: Session = Depends(get_db), _: User = Depends(require_manager)):
-    return [report(db, s) for s in db.scalars(select(Shift).order_by(Shift.id.desc()).limit(limit))]
+def list_shifts(limit: int = Query(50, le=500), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Every cashier's shifts for managers (reports / all sales permission); a cashier gets their own."""
+    query = select(Shift)
+    if not permissions.has(db, user, "reports", "all_sales"):
+        query = query.where(Shift.user_id == user.id)
+    return [report(db, s) for s in db.scalars(query.order_by(Shift.id.desc()).limit(limit))]
+
+
+@router.post("/{shift_id}/close", response_model=ShiftReport)
+def close_other_shift(shift_id: int, body: ShiftCloseIn, db: Session = Depends(get_db),
+                      manager: User = Depends(require_perm("reports"))):
+    """A manager counts and closes a shift its cashier left open (went home, phone lost, account deactivated)."""
+    shift = db.get(Shift, shift_id)
+    if shift is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Shift not found")
+    if shift.closed_at is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This shift is already closed")
+    _count_and_close(db, shift, body)
+    if not shift.note:
+        shift.note = f"Closed by {manager.full_name or manager.username}"
+    audit(db, manager, "shift_close",
+          f"{shift.user.username}'s shift closed by {manager.username}: "
+          f"expected ${shift.expected_cash / 100:.2f} counted ${shift.counted_cash / 100:.2f}")
+    db.commit()
+    return report(db, shift)
 
 
 @router.get("/{shift_id}", response_model=ShiftReport)
 def get_shift(shift_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     shift = db.get(Shift, shift_id)
-    if shift is None or (not is_manager(user) and shift.user_id != user.id):
+    if shift is None or (shift.user_id != user.id and not sees_all_sales(db, user)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Shift not found")
     return report(db, shift)

@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { api, ApiError } from '@/api/client'
-import type { Customer, DiscountType, ParkedOrder, Product, QuoteResult } from '@/api/types'
+import type { Customer, DiscountType, ParkedOrder, Product, QuoteResult, Staff } from '@/api/types'
 import { t } from '@/lib/i18n'
 import { calculate } from '@/lib/pricing'
 import { useAuth } from './auth'
@@ -34,8 +34,10 @@ export const useCart = defineStore('cart', () => {
   /** Stays the same for every payment attempt of this order, so a retry after a network error can never
    *  record the sale twice (the service returns the first one). A new order gets a new id. */
   const orderId = ref(uuid())
-  /** Held orders of every till, from the service. */
+  /** Held orders of every till, from the service; the ones sent to this cashier come first. */
   const held = ref<ParkedOrder[]>([])
+  /** Who a held order can be sent to (loaded the first time it is needed). */
+  const staff = ref<Staff[]>([])
   /** The line the last tap or scan went to, so the cart can show it; addCount changes on every add. */
   const lastAdded = ref<CartLine | null>(null)
   const addCount = ref(0)
@@ -58,7 +60,7 @@ export const useCart = defineStore('cart', () => {
 
   /** Cashiers need a manager PIN to give discounts; one approval covers the order. */
   async function approve(reason: string) {
-    if (auth.isManager || managerPin.value) return true
+    if (auth.can('approve') || managerPin.value) return true
     const pin = await ui.managerPin(reason)
     if (!pin) return false
     managerPin.value = pin
@@ -68,8 +70,8 @@ export const useCart = defineStore('cart', () => {
   /** Takes items off an unpaid order. Cashiers need a manager PIN (asked once per order); the service checks
    *  it and writes the void to the activity log. Returns false when not approved. */
   async function recordVoid(kind: 'line' | 'clear' | 'parked', items: { name: string; qty: number; amount: number }[]) {
-    let pin = auth.isManager ? null : managerPin.value
-    if (!auth.isManager && !pin) {
+    let pin = auth.can('approve') ? null : managerPin.value
+    if (!auth.can('approve') && !pin) {
       pin = await ui.prompt({ title: kind === 'clear' ? 'Void sale' : 'Void item', label: 'Manager PIN', inputmode: 'numeric', password: true, confirmText: 'Approve' })
       if (!pin) return false
     }
@@ -150,17 +152,60 @@ export const useCart = defineStore('cart', () => {
   // ---------- held orders (on the service, shared by all tills) ----------
 
   async function loadHeld() {
-    held.value = await api.get<ParkedOrder[]>('/parked')
+    const me = auth.user?.id
+    const all = await api.get<ParkedOrder[]>('/parked')
+    held.value = [...all.filter((o) => o.assigned_to_id === me), ...all.filter((o) => o.assigned_to_id !== me)]
+  }
+
+  /** "Any till" plus every other active user, for the "Send to" list. */
+  async function sendToChoices() {
+    if (!staff.value.length) staff.value = await api.get<Staff[]>('/users/staff').catch(() => [])
+    return [
+      { value: '', label: 'Any till' },
+      ...staff.value.filter((s) => s.id !== auth.user?.id).map((s) => ({ value: String(s.id), label: s.full_name || s.username })),
+    ]
   }
 
   async function hold() {
     if (isEmpty.value) return
-    const label = await ui.prompt({ title: 'Hold order', label: 'Name or note, so you can find it again (optional)', placeholder: 'e.g. Lady in red' })
-    if (label === null) return
+    const answer = await ui.promptChoice({
+      title: 'Hold order',
+      label: 'Name or note, so you can find it again (optional)',
+      placeholder: 'e.g. Lady in red',
+      choiceLabel: 'Send to',
+      choices: await sendToChoices(),
+    })
+    if (answer === null) return
     try {
-      await api.post('/parked', { ...cartBody(), customer_id: customer.value?.id ?? null, label: label.trim() })
+      await api.post('/parked', {
+        ...cartBody(),
+        customer_id: customer.value?.id ?? null,
+        label: answer.text.trim(),
+        assigned_to_id: answer.choice ? Number(answer.choice) : null,
+      })
       reset()
-      ui.toast('Order held. Tap it above the cart to continue later.', 'success')
+      ui.toast(answer.choice ? 'Order sent to the other till.' : 'Order held. Tap it above the cart to continue later.', 'success')
+    } catch (e) {
+      ui.error(e)
+    }
+    loadHeld().catch(() => {})
+  }
+
+  /** Passes a held order to another cashier's till. */
+  async function sendHeld(order: ParkedOrder) {
+    const answer = await ui.promptChoice({
+      title: 'Send held order',
+      message: t('{name} · {total}', { name: order.label || order.customer_name || order.cashier_name, total: `$${(order.total / 100).toFixed(2)}` }),
+      noInput: true,
+      choiceLabel: 'Send to',
+      choices: await sendToChoices(),
+      initialChoice: order.assigned_to_id ? String(order.assigned_to_id) : '',
+      confirmText: 'Send',
+    })
+    if (answer === null) return
+    try {
+      await api.post(`/parked/${order.id}/assign`, { assigned_to_id: answer.choice ? Number(answer.choice) : null })
+      ui.toast('Held order sent', 'success')
     } catch (e) {
       ui.error(e)
     }
@@ -193,7 +238,7 @@ export const useCart = defineStore('cart', () => {
   async function discardHeld(order: ParkedOrder) {
     if (!(await ui.confirm('Discard held order', t('Throw away the held order of {total}?', { total: `$${(order.total / 100).toFixed(2)}` }), 'Discard', true))) return
     let pin: string | null = null
-    if (!auth.isManager) {
+    if (!auth.can('approve')) {
       pin = await ui.prompt({ title: 'Discard held order', label: 'Manager PIN', inputmode: 'numeric', password: true, confirmText: 'Approve' })
       if (!pin) return
     }
@@ -258,7 +303,7 @@ export const useCart = defineStore('cart', () => {
     clear,
     reset,
     loadHeld,
-    hold,
+    hold, sendHeld, staff,
     resume,
     discardHeld,
     syncPrices,

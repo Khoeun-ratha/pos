@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import audit, require_manager
+from ..deps import audit, require_perm
 from ..models import Supplier, User
 from ..schemas import SupplierIn, SupplierOut
 
@@ -30,12 +30,12 @@ def _clean(body: SupplierIn) -> dict:
 
 
 @router.get("", response_model=list[SupplierOut])
-def list_suppliers(db: Session = Depends(get_db), _: User = Depends(require_manager)):
+def list_suppliers(db: Session = Depends(get_db), _: User = Depends(require_perm("suppliers", "inventory"))):
     return db.scalars(select(Supplier).order_by(Supplier.is_active.desc(), Supplier.name)).all()
 
 
 @router.post("", response_model=SupplierOut, status_code=201)
-def create_supplier(body: SupplierIn, db: Session = Depends(get_db), user: User = Depends(require_manager)):
+def create_supplier(body: SupplierIn, db: Session = Depends(get_db), user: User = Depends(require_perm("suppliers"))):
     supplier = Supplier(**_clean(body))
     db.add(supplier)
     audit(db, user, "supplier_create", supplier.name)
@@ -44,7 +44,7 @@ def create_supplier(body: SupplierIn, db: Session = Depends(get_db), user: User 
 
 
 @router.put("/{supplier_id}", response_model=SupplierOut)
-def update_supplier(supplier_id: int, body: SupplierIn, db: Session = Depends(get_db), user: User = Depends(require_manager)):
+def update_supplier(supplier_id: int, body: SupplierIn, db: Session = Depends(get_db), user: User = Depends(require_perm("suppliers"))):
     """Suppliers are never deleted (stock history points at them); set is_active to false instead."""
     supplier = db.get(Supplier, supplier_id)
     if supplier is None:

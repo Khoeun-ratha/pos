@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Minus, PauseCircle, Plus, ShoppingBag, Trash2, X } from 'lucide-vue-next'
+import { Minus, PauseCircle, Plus, Send, ShoppingBag, Trash2, X } from 'lucide-vue-next'
 import { nextTick, ref, watch } from 'vue'
 
 import type { Customer, DiscountType, ParkedOrder } from '@/api/types'
@@ -90,16 +90,23 @@ function lineAmount(index: number) {
 
     <!-- held orders (all tills) -->
     <div v-if="cart.held.length" class="flex gap-2 overflow-x-auto border-b border-line px-4 py-2">
-      <span v-for="h in cart.held" :key="h.id" class="pill shrink-0 gap-0 bg-primary-soft p-0 text-primary">
+      <span
+        v-for="h in cart.held"
+        :key="h.id"
+        :class="['pill shrink-0 gap-0 p-0', h.assigned_to_id === auth.user?.id ? 'bg-warn-soft text-amber-900 ring-1 ring-warn' : 'bg-primary-soft text-primary']"
+      >
         <button
-          class="flex items-center gap-1.5 rounded-l-full py-1 pr-1 pl-2.5 hover:bg-blue-100"
+          class="flex items-center gap-1.5 rounded-l-full py-1 pr-1 pl-2.5 hover:bg-black/5"
           :title="t('Resume order held at {time} by {name}', { time: time(h.created_at), name: h.cashier_name })"
           @click="emit('resume', h)"
         >
           <PauseCircle :size="14" />
           {{ h.label || h.customer_name || time(h.created_at) }} · {{ usd(h.total) }}
+          <span v-if="h.assigned_to_id === auth.user?.id" class="font-bold">· {{ t('for you') }}</span>
+          <span v-else-if="h.assigned_to_name" class="opacity-75">→ {{ h.assigned_to_name }}</span>
         </button>
-        <button class="rounded-r-full py-1 pr-2 pl-1 hover:bg-blue-100" :title="t('Discard held order')" @click="cart.discardHeld(h)"><X :size="13" /></button>
+        <button class="px-1 py-1 hover:bg-black/5" :title="t('Send to another till')" @click="cart.sendHeld(h)"><Send :size="13" /></button>
+        <button class="rounded-r-full py-1 pr-2 pl-1 hover:bg-black/5" :title="t('Discard held order')" @click="cart.discardHeld(h)"><X :size="13" /></button>
       </span>
     </div>
 

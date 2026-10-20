@@ -29,7 +29,7 @@ function ok() {
   <AppModal v-if="ui.dialog" :title="t(ui.dialog.title)" width="max-w-md" @close="ui.close(null)">
     <form id="dialog-form" @submit.prevent="ok">
       <p v-if="ui.dialog.message" class="whitespace-pre-line text-muted">{{ t(ui.dialog.message) }}</p>
-      <template v-if="ui.dialog.kind === 'prompt'">
+      <template v-if="ui.dialog.kind === 'prompt' && !ui.dialog.noInput">
         <label v-if="ui.dialog.label" class="label" for="dialog-input">{{ t(ui.dialog.label) }}</label>
         <input
           id="dialog-input"
@@ -42,6 +42,12 @@ function ok() {
           autocomplete="off"
         />
       </template>
+      <div v-if="ui.dialog.choices" :class="ui.dialog.noInput ? '' : 'mt-3'">
+        <label v-if="ui.dialog.choiceLabel" class="label" for="dialog-choice">{{ t(ui.dialog.choiceLabel) }}</label>
+        <select id="dialog-choice" v-model="ui.choice" class="input">
+          <option v-for="c in ui.dialog.choices" :key="c.value" :value="c.value">{{ t(c.label) }}</option>
+        </select>
+      </div>
     </form>
     <template #footer>
       <button class="btn-outline" type="button" @click="ui.close(null)">{{ t('Cancel') }}</button>
