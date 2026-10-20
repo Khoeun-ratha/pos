@@ -270,6 +270,10 @@ class CustomerOut(ORM):
     email: str | None
     points: int
     created_at: datetime
+    # from their sales: receipts, money spent after refunds, last purchase
+    visits: int = 0
+    total_spent: int = 0
+    last_visit: datetime | None = None
 
 
 # ---------- sales ----------

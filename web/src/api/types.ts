@@ -148,6 +148,9 @@ export interface Customer {
   email: string | null
   points: number
   created_at: string
+  visits: number
+  total_spent: number // cents, after refunds
+  last_visit: string | null
 }
 
 export interface PaymentIn {

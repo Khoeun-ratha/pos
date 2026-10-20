@@ -147,7 +147,8 @@ def _history(db: Session, users: dict[str, User], products: list[Product]) -> No
     today = date.today()
     current = datetime.now().replace(microsecond=0)
 
-    customers = [Customer(name=name, phone=phone) for name, phone in DEMO_CUSTOMERS]
+    joined = current - timedelta(days=HISTORY_DAYS)  # before their first purchase
+    customers = [Customer(name=name, phone=phone, created_at=joined) for name, phone in DEMO_CUSTOMERS]
     db.add_all(customers)
     db.flush()
 

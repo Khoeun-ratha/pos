@@ -154,6 +154,8 @@ def test_a_whole_shop_day(client):
     r_cust = refund(s6, {"items": [{"sale_item_id": s6["items"][0]["id"], "qty": 1}], "reason": "One back"}).json()
     kept = s6["total"] - r_cust["amount"]
     assert admin.do("GET", f"/customers/{customer['id']}")["points"] == kept // 100 * per_usd
+    record = next(c for c in admin.do("GET", "/customers", q="Day customer"))
+    assert (record["visits"], record["total_spent"]) == (1, kept) and record["last_visit"]
     r_split = refund(s4, {"reason": "Split"}).json()
 
     # --- 10. the drawer: every cash movement is accounted for
