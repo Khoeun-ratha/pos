@@ -3,16 +3,23 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import audit, get_current_user, require_admin
-from ..models import User
+from ..deps import audit, get_current_user, require_perm
+from ..models import ROLE_ADMIN, ROLE_CASHIER, User
 from ..schemas import StaffOut, UserCreate, UserOut, UserUpdate
 from ..security import hash_pin, hash_secret
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+# the admin manages everyone; a role given "staff" (managers by default) manages the cashiers only
+staff_perm = require_perm("staff")
+
+
+def _check_may_manage(actor: User, role: str) -> None:
+    if actor.role != ROLE_ADMIN and role != ROLE_CASHIER:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the admin can manage managers and admins")
 
 
 @router.get("", response_model=list[UserOut])
-def list_users(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def list_users(db: Session = Depends(get_db), _: User = Depends(staff_perm)):
     return db.scalars(select(User).order_by(User.username)).all()
 
 
@@ -22,7 +29,8 @@ def list_staff(db: Session = Depends(get_db), _: User = Depends(get_current_user
 
 
 @router.post("", response_model=UserOut, status_code=201)
-def create_user(body: UserCreate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+def create_user(body: UserCreate, db: Session = Depends(get_db), admin: User = Depends(staff_perm)):
+    _check_may_manage(admin, body.role)
     if db.scalar(select(User).where(User.username == body.username)):
         raise HTTPException(status.HTTP_409_CONFLICT, "Username already exists")
     user = User(
@@ -39,10 +47,13 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), admin: User = D
 
 
 @router.patch("/{user_id}", response_model=UserOut)
-def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db), admin: User = Depends(staff_perm)):
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    _check_may_manage(admin, user.role)
+    if body.role:
+        _check_may_manage(admin, body.role)
     if user.id == admin.id and (body.is_active is False or (body.role and body.role != "admin")):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot deactivate or demote yourself")
 
@@ -56,6 +67,8 @@ def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db), a
         user.role = body.role
     if body.is_active is not None:
         user.is_active = body.is_active
-    audit(db, admin, "user_update", user.username)
+    changed = [name for name, value in (("name", body.full_name), ("password", body.password), ("PIN", body.pin),
+                                        ("role", body.role), ("active", body.is_active)) if value is not None]
+    audit(db, admin, "user_update", f"{user.username}: {', '.join(changed)}")
     db.commit()
     return user

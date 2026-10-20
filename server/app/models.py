@@ -1,8 +1,8 @@
 """Database tables. All money columns are integers: USD in cents, KHR in riel."""
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -119,6 +119,33 @@ class CashMovement(Base):
     reason: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
+
+
+class Expense(Base):
+    """Money spent running the shop (rent, electricity, salaries...). Paid from the cash drawer, it is also a cash
+    movement of the shift open at the time, so the drawer count stays right."""
+
+    __tablename__ = "expenses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    spent_on: Mapped[date] = mapped_column(Date, index=True)
+    category: Mapped[str] = mapped_column(String(50))
+    amount: Mapped[int] = mapped_column(Integer)  # USD cents
+    note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    cash_movement_id: Mapped[int | None] = mapped_column(ForeignKey("cash_movements.id", ondelete="SET NULL"), nullable=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+    user: Mapped[User] = relationship(lazy="joined")
+    cash_movement: Mapped[CashMovement | None] = relationship(lazy="joined")
+
+    @property
+    def from_drawer(self) -> bool:
+        return self.cash_movement_id is not None
+
+    @property
+    def recorded_by(self) -> str:
+        return self.user.full_name or self.user.username
 
 class Sale(Base):
     __tablename__ = "sales"

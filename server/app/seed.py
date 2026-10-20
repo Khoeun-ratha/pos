@@ -15,6 +15,7 @@ from .demo_images import add_demo_images
 from .models import (
     Category,
     Customer,
+    Expense,
     Payment,
     Product,
     Refund,
@@ -209,6 +210,7 @@ def _history(db: Session, users: dict[str, User], products: list[Product]) -> No
     refunds = _refunds(db, rng, sales, users["manager"])
     _stock_history(db, products, sales, refunds, sold, today)
     _close_shifts(db, rng, shifts, sales, refunds, current)
+    _expenses(db, rng, users["manager"], today)
 
 
 def _payments(rng: random.Random, total: int, rate: int) -> list[Payment]:
@@ -272,6 +274,20 @@ def _stock_history(db, products, sales, refunds, sold, today) -> None:
         balance[product_id] += change
         db.add(StockMovement(product_id=product_id, change=change, balance=balance[product_id], kind=kind,
                              reference=receipt, created_at=created))
+
+
+def _expenses(db: Session, rng: random.Random, manager: User, today: date) -> None:
+    """A month of shop costs: the monthly bills on the 1st, ice and supplies every few days."""
+    for days_ago in range(HISTORY_DAYS - 1, -1, -1):
+        day = today - timedelta(days=days_ago)
+        # the 1st of the month, or the first day shown when the 30 days hold no 1st
+        if day.day == 1 or (days_ago == HISTORY_DAYS - 1 and today.day == 31):
+            for category, amount, note in (("Rent", 30000, "Shop rent"), ("Salaries", 44000, "2 cashiers"),
+                                           ("Electricity", rng.randint(4500, 6000), "EDC bill"), ("Water", 800, None),
+                                           ("Internet & phone", 1500, None)):
+                db.add(Expense(spent_on=day, category=category, amount=amount, note=note, user_id=manager.id))
+        if days_ago % 3 == 0:
+            db.add(Expense(spent_on=day, category="Ice & supplies", amount=rng.randint(200, 450), note="Ice", user_id=manager.id))
 
 
 def _close_shifts(db, rng, shifts, sales, refunds, current) -> None:

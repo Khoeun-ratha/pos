@@ -94,12 +94,23 @@ All three parts calculate prices the same way (`server/app/pricing.py`, `web/src
 ## Features
 
 - Login with password or quick PIN; roles **admin / manager / cashier**. The admin chooses what managers and
-  cashiers may do (**Users & roles → Roles & permissions**): dashboard / reports, see every cashier's sales,
-  approve discounts / voids / refunds, products, inventory, suppliers. The service enforces it; the admin always has
-  everything. The defaults are the old fixed roles (manager: all of it, cashier: none of it)
-- Menu with sub-menus: **Products** (Product list, Barcode & QR labels), **Inventory** (Stock levels, Low stock,
-  Stock movements, Stock transfers, Branches & warehouses), **Users & roles** (Users, Roles & permissions).
-  Each person only sees what they may use
+  cashiers may do (**Staff → Roles & permissions**): dashboard / reports, see every cashier's sales, approve
+  discounts / voids / refunds, products, inventory, suppliers, expenses, manage staff. The service enforces it; the
+  admin always has everything. Managers have all of it by default, cashiers none of it
+- **Staff accounts** (Staff menu): the admin manages everyone; a manager with *Manage staff* adds cashiers, changes
+  their name, resets their password or PIN and deactivates / reactivates them (not managers or admins, no
+  promotions). Search, active / inactive filter, count per role. Every change is in the activity log
+- **Expenses** (Finance menu): rent, electricity, salaries, ice... by date and category (usual categories offered,
+  any other can be typed). *Paid with cash from my drawer* also takes it out of your open shift, so the cash count
+  stays right; such an expense can be changed or deleted only while that shift is open. Reports show expenses and
+  **profit after expenses** (overview, Reports › Expenses, and an Expenses sheet in the Excel export)
+- Side menu: **Dashboard** on top, then sections **Sell** (POS, Sales, Shift, Customers), **Stock** (Products ▸
+  Product list, Barcode & QR labels; Inventory ▸ Stock levels, Low stock, Stock movements, Stock transfers,
+  Branches & warehouses; Suppliers), **Finance** (Expenses; Reports ▸ Overview and the reports under Sales / Checks /
+  Stock & customers / Costs), **Admin** (Store settings, Staff ▸ Staff accounts, Roles & permissions; Activity log).
+  Each person only sees what they may use. One group open at a time (the one of the page shown); counts beside Low
+  stock and Stock transfers (goods on the road); the top bar shows where you are (Reports › Sales by product).
+  Collapsed to icons, pointing at an icon shows its name and the pages of its group
 - Sell screen: product cards, category pills, search, USB barcode scanner (web) / camera scanner (mobile)
 - Barcode scanning like a supermarket till, the same on the web app and the mobile app:
   - USB / Bluetooth scanner works wherever the cursor is (even with the Khmer keyboard on) and never presses the
@@ -149,7 +160,7 @@ All three parts calculate prices the same way (`server/app/pricing.py`, `web/src
     Stock & losses (stock in every place, deliveries by supplier, losses by reason), Customers (best buyers).
     Sort any column, search the table, totals row, **Download for Excel** (CSV, Khmer-safe); receipt numbers open
     the sale. Every report adds up to the overview for the same days
-- Admin: store settings and shop logo (printed on receipts), users, activity log (who did what and when)
+- Admin: store settings and shop logo (printed on receipts), staff, activity log (who did what and when)
 - Web app in **English or Khmer** (EN / ខ្មែរ switch at the top; translations in `web/src/lib/km.ts`)
 - Mobile works offline: sales are saved on the phone and synced later (no duplicates)
 

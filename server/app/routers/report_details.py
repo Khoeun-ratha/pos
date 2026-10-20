@@ -13,8 +13,10 @@ from ..database import get_db
 from ..deps import require_perm
 from ..models import (AuditLog, Location, LocationStock, Product, RefundItem, Sale, SaleItem, Shift, StockMovement,
                       StockTransfer, StockTransferItem, Supplier, User)
-from ..schemas import (CashierReportRow, CustomerReportRow, DiscountReportRow, LogReportRow, PaymentReportRow,
+from ..schemas import (CashierReportRow, CustomerReportRow, DiscountReportRow, ExpenseCategoryOut, ExpenseOut, ExpenseReport,
+                       LogReportRow, PaymentReportRow,
                        ProductReportRow, RefundReportRow, ShiftReport, StockFlowRow, StockPlaceRow, StockReport)
+from .expenses import expenses_between
 from .reports import METHOD_NAMES, _period, build_summary, item_totals, period_sales
 from .shifts import report as shift_report
 
@@ -175,6 +177,20 @@ def stock(date_from: date | None = None, date_to: date | None = None,
         return sorted((StockFlowRow(name=n, qty=q, value=v) for n, (q, v) in rows.items()), key=lambda r: r.value, reverse=True)
 
     return StockReport(places=places, received=flows(received), losses=flows(losses))
+
+
+@router.get("/expenses", response_model=ExpenseReport)
+def expenses(date_from: date | None = None, date_to: date | None = None,
+             db: Session = Depends(get_db), _: User = Depends(reports_perm)):
+    """Expenses dated in the period, by category and one by one."""
+    date_from, date_to, *_ = _period(date_from, date_to)
+    items = expenses_between(db, date_from, date_to)
+    by_category: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    for e in items:
+        by_category[e.category][0] += 1
+        by_category[e.category][1] += e.amount
+    categories = sorted((ExpenseCategoryOut(name=n, count=c, amount=a) for n, (c, a) in by_category.items()), key=lambda r: r.amount, reverse=True)
+    return ExpenseReport(categories=categories, items=[ExpenseOut.model_validate(e) for e in reversed(items)])
 
 
 @router.get("/customers", response_model=list[CustomerReportRow])

@@ -8,7 +8,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
-from .models import Sale, StockMovement
+from .models import Expense, Sale, StockMovement
 from .schemas import ReportSummary
 
 USD = '"$"#,##0.00'
@@ -40,7 +40,8 @@ def _table(ws: Worksheet, headers: Sequence[str], rows: Iterable[Sequence], mone
     ws.freeze_panes = ws.cell(row=start_row + 1, column=1)
 
 
-def report_workbook(report: ReportSummary, sales: Sequence[Sale], losses: Sequence[StockMovement], store_name: str) -> bytes:
+def report_workbook(report: ReportSummary, sales: Sequence[Sale], losses: Sequence[StockMovement], store_name: str,
+                    expenses: Sequence[Expense] = ()) -> bytes:
     wb = Workbook()
 
     ws = wb.active
@@ -58,13 +59,15 @@ def report_workbook(report: ReportSummary, sales: Sequence[Sale], losses: Sequen
         ("Discounts given", report.discounts, True),
         ("Cost of goods sold", report.cost, True),
         ("Gross profit", report.profit, True),
+        ("Expenses (rent, salaries...)", report.expenses, True),
+        ("Profit after expenses", report.net_profit, True),
         ("Average sale", report.average_sale, True),
         ("Stock received (at cost)", report.purchases, True),
         ("Stock losses (damaged, expired, lost)", report.stock_losses, True),
         ("Stock value now (at cost)", report.stock_value, True),
     ]
     for i, (label, value, money) in enumerate(summary, start=4):
-        ws.cell(row=i, column=1, value=label).font = Font(bold=label in ("Net sales", "Gross profit"))
+        ws.cell(row=i, column=1, value=label).font = Font(bold=label in ("Net sales", "Gross profit", "Profit after expenses"))
         cell = ws.cell(row=i, column=2, value=_dollars(value) if money else value)
         if money:
             cell.number_format = USD
@@ -106,6 +109,13 @@ def report_workbook(report: ReportSummary, sales: Sequence[Sale], losses: Sequen
     )
     for row in wb["Stock losses"].iter_rows(min_row=2, min_col=1, max_col=1):
         row[0].number_format = "yyyy-mm-dd hh:mm"
+
+    _table(
+        wb.create_sheet("Expenses"),
+        ["Date", "Category", "Note", "Amount", "From the cash drawer", "Recorded by"],
+        ((e.spent_on, e.category, e.note or "", e.amount, "yes" if e.from_drawer else "", e.recorded_by) for e in expenses),
+        money=[3],
+    )
 
     buffer = io.BytesIO()
     wb.save(buffer)

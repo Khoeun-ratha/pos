@@ -528,6 +528,8 @@ class ReportSummary(BaseModel):
     purchases: int  # cost of stock received in the period (when the cost was entered)
     stock_losses: int  # cost of damaged / expired / lost stock written off in the period
     stock_value: int  # cost of all stock on hand now: main shop, branches / warehouses and transfers on the road
+    expenses: int = 0  # shop expenses dated in the period
+    net_profit: int = 0  # profit minus expenses
     by_payment: list[NameAmount]
     by_cashier: list[NameAmount]
     by_category: list[NameAmount]
@@ -536,6 +538,38 @@ class ReportSummary(BaseModel):
     by_hour: list[HourAmount]  # always 24 entries, for the "busy hours" chart
 
 
+
+
+# ---------- expenses ----------
+
+class ExpenseIn(BaseModel):
+    spent_on: date
+    category: str = Field(min_length=1, max_length=50)
+    amount: int = Field(gt=0)  # USD cents
+    note: str | None = Field(default=None, max_length=200)
+    from_drawer: bool = False  # paid with cash from the drawer of your open shift
+
+
+class ExpenseOut(ORM):
+    id: int
+    spent_on: date
+    category: str
+    amount: int
+    note: str | None
+    from_drawer: bool
+    recorded_by: str
+    created_at: datetime
+
+
+class ExpenseCategoryOut(BaseModel):
+    name: str
+    count: int
+    amount: int
+
+
+class ExpenseReport(BaseModel):
+    categories: list[ExpenseCategoryOut]
+    items: list[ExpenseOut]
 
 # ---------- reports by feature (Reports menu) ----------
 

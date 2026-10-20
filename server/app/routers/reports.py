@@ -9,7 +9,7 @@ from .. import store_settings
 from ..database import get_db
 from ..deps import require_perm
 from ..excel import report_workbook
-from ..models import LocationStock, Product, Refund, RefundItem, Sale, SaleItem, StockMovement, StockTransfer, StockTransferItem, User
+from ..models import Expense, LocationStock, Product, Refund, RefundItem, Sale, SaleItem, StockMovement, StockTransfer, StockTransferItem, User
 from ..pricing import allocate, share_of
 from ..schemas import DayAmount, HourAmount, NameAmount, ReportSummary
 
@@ -48,7 +48,9 @@ def export(date_from: date | None = None, date_to: date | None = None,
     losses = db.scalars(select(StockMovement).where(
         StockMovement.kind == "write_off", StockMovement.created_at >= start, StockMovement.created_at < end,
     ).order_by(StockMovement.id)).all()
-    data = report_workbook(report, sales, losses, store_settings.load(db)["store_name"])
+    spent = db.scalars(select(Expense).where(Expense.spent_on >= report.date_from, Expense.spent_on <= report.date_to)
+                       .order_by(Expense.spent_on, Expense.id)).all()
+    data = report_workbook(report, sales, losses, store_settings.load(db)["store_name"], spent)
     name = f"sales-{report.date_from}" + ("" if report.date_from == report.date_to else f"-to-{report.date_to}")
     return Response(
         data,
@@ -174,6 +176,9 @@ def build_summary(db: Session, date_from: date | None, date_to: date | None, top
         .where(StockTransfer.status == "in_transit")
     )
 
+    expenses = int(db.scalar(select(func.coalesce(func.sum(Expense.amount), 0))
+                             .where(Expense.spent_on >= date_from, Expense.spent_on <= date_to)) or 0)
+
     def used(rows: dict[str, dict]) -> dict[str, dict]:
         return {name: row for name, row in rows.items() if row["qty"] or row["amount"]}
 
@@ -192,6 +197,8 @@ def build_summary(db: Session, date_from: date | None, date_to: date | None, top
         purchases=int(stock_costs.get("stock_in") or 0),
         stock_losses=-int(stock_costs.get("write_off") or 0),
         stock_value=int(stock_value),
+        expenses=expenses,
+        net_profit=revenue - cost - expenses,
         by_payment=_ranked(by_payment),
         by_cashier=_ranked(by_cashier),
         by_category=_ranked(used(by_category)),

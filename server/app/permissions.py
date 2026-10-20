@@ -17,6 +17,8 @@ PERMISSIONS: dict[str, str] = {
     "products": "Add and edit products, categories and barcodes; import / export",
     "inventory": "Receive stock, write off, stock counts and stock history",
     "suppliers": "Suppliers",
+    "expenses": "Record shop expenses (rent, electricity, salaries...) and see profit after expenses",
+    "staff": "Manage staff: add cashiers, reset their password / PIN, deactivate them",
 }
 
 EDITABLE_ROLES = (ROLE_MANAGER, ROLE_CASHIER)

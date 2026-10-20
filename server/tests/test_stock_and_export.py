@@ -77,7 +77,7 @@ def test_excel_report(client, manager):
     assert response.status_code == 200
     assert "attachment; filename=sales-" in response.headers["content-disposition"]
     wb = load_workbook(io.BytesIO(response.content))
-    assert wb.sheetnames == ["Summary", "By day", "Products", "Categories", "Payments", "Cashiers", "Busy hours", "Receipts", "Stock losses"]
+    assert wb.sheetnames == ["Summary", "By day", "Products", "Categories", "Payments", "Cashiers", "Busy hours", "Receipts", "Stock losses", "Expenses"]
     summary = {row[0]: row[1] for row in wb["Summary"].iter_rows(min_row=4, values_only=True)}
     assert summary["Net sales"] == 14.30 and summary["Sales (receipts)"] == 1
     assert summary["Stock losses (damaged, expired, lost)"] == 1.60

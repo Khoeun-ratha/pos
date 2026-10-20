@@ -3,7 +3,7 @@
 import { api } from '@/api/client'
 import type {
   CashierReportRow, CustomerReportRow, DiscountReportRow, LogReportRow, PaymentReportRow, ProductReportRow,
-  RefundReportRow, ReportSummary, ShiftReport, StockReport,
+  ExpenseReport, RefundReportRow, ReportSummary, ShiftReport, StockReport,
 } from '@/api/types'
 import { rangeQuery } from './reportRange'
 
@@ -232,6 +232,40 @@ export const REPORTS: Record<string, ReportDef> = {
     },
   },
 
+  expenses: {
+    title: 'Expenses',
+    description: 'Shop costs in the period by category, and profit after expenses.',
+    async load() {
+      const [r, s] = await Promise.all([get<ExpenseReport>('/reports/expenses'), get<ReportSummary>('/reports/summary')])
+      return [
+        {
+          title: 'Profit after expenses',
+          columns: [{ key: 'label', label: 'What' }, { key: 'amount', label: 'Amount', format: 'signed' }],
+          rows: [
+            { label: 'Net sales', amount: s.net_sales },
+            { label: 'Gross profit', amount: s.profit },
+            { label: 'Expenses', amount: -s.expenses },
+            { label: 'Profit after expenses', amount: s.net_profit },
+          ],
+        },
+        {
+          title: 'By category',
+          columns: [{ key: 'name', label: 'Category' }, { key: 'count', label: 'Entries', format: 'num', total: true }, { key: 'amount', label: 'Amount', format: 'usd', total: true }],
+          rows: r.categories.map((c) => ({ ...c })),
+          chart: { label: 'name', value: 'amount' },
+        },
+        {
+          title: 'Every expense',
+          columns: [
+            { key: 'spent_on', label: 'Date' }, { key: 'category', label: 'Category' }, { key: 'note', label: 'Note' },
+            { key: 'drawer', label: 'Paid from' }, { key: 'recorded_by', label: 'By' }, { key: 'amount', label: 'Amount', format: 'usd', total: true },
+          ],
+          rows: r.items.map((e) => ({ ...e, drawer: e.from_drawer ? 'cash drawer' : '' })) as unknown as Row[],
+        },
+      ]
+    },
+  },
+
   customers: {
     title: 'Customers',
     description: 'Customers who bought in the period, best first. Walk-in sales are not counted.',
@@ -249,16 +283,17 @@ export const REPORTS: Record<string, ReportDef> = {
   },
 }
 
-/** Order in the menu. */
-export const REPORT_MENU: [string, string][] = [
-  ['products', 'Sales by product'],
-  ['categories', 'Sales by category'],
-  ['time', 'Sales by day & hour'],
-  ['payments', 'Payment methods'],
-  ['cashiers', 'Sales by cashier'],
-  ['refunds', 'Refunds & voids'],
-  ['discounts', 'Discounts'],
-  ['shifts', 'Shifts & cash'],
-  ['stock', 'Stock & losses'],
-  ['customers', 'Customers'],
+/** Order in the menu: [kind, label, section]. */
+export const REPORT_MENU: [string, string, string][] = [
+  ['products', 'Sales by product', 'Sales'],
+  ['categories', 'Sales by category', 'Sales'],
+  ['time', 'Sales by day & hour', 'Sales'],
+  ['payments', 'Payment methods', 'Sales'],
+  ['cashiers', 'Sales by cashier', 'Sales'],
+  ['refunds', 'Refunds & voids', 'Checks'],
+  ['discounts', 'Discounts', 'Checks'],
+  ['shifts', 'Shifts & cash', 'Checks'],
+  ['stock', 'Stock & losses', 'Stock & customers'],
+  ['customers', 'Customers', 'Stock & customers'],
+  ['expenses', 'Expenses', 'Costs'],
 ]

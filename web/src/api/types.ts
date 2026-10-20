@@ -4,7 +4,7 @@
 export type Role = 'admin' | 'manager' | 'cashier'
 
 /** What a role may do; the admin edits them on the Users page (server/app/permissions.py). */
-export type Permission = 'reports' | 'all_sales' | 'approve' | 'products' | 'inventory' | 'suppliers'
+export type Permission = 'reports' | 'all_sales' | 'approve' | 'products' | 'inventory' | 'suppliers' | 'expenses' | 'staff'
 
 export interface PermissionsInfo {
   permissions: { key: Permission; label: string }[]
@@ -289,6 +289,8 @@ export interface ReportSummary {
   purchases: number
   stock_losses: number
   stock_value: number
+  expenses: number
+  net_profit: number
   by_payment: NameAmount[]
   by_cashier: NameAmount[]
   by_category: NameAmount[]
@@ -389,4 +391,20 @@ export interface CustomerReportRow {
   spent: number
   points: number
   last_visit: string | null
+}
+
+export interface Expense {
+  id: number
+  spent_on: string
+  category: string
+  amount: number
+  note: string | null
+  from_drawer: boolean
+  recorded_by: string
+  created_at: string
+}
+
+export interface ExpenseReport {
+  categories: { name: string; count: number; amount: number }[]
+  items: Expense[]
 }

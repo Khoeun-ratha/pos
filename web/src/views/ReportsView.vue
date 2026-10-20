@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { BarElement, CategoryScale, Chart as ChartJS, LinearScale, Tooltip } from 'chart.js'
-import { AlertTriangle, Banknote, ChevronRight, Boxes, FileSpreadsheet, PackageMinus, PackagePlus, Percent, Receipt, RotateCcw, ShoppingCart, TrendingUp, Wallet } from 'lucide-vue-next'
+import { AlertTriangle, Banknote, ChevronRight, TrendingDown, Boxes, FileSpreadsheet, PackageMinus, PackagePlus, Percent, Receipt, RotateCcw, ShoppingCart, TrendingUp, Wallet } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { Bar } from 'vue-chartjs'
 
@@ -58,6 +58,8 @@ const stats = computed(() => {
     { label: 'Stock received', value: usd(r.purchases), icon: PackagePlus, color: 'bg-sky-50 text-sky-600' },
     { label: 'Stock losses', value: usd(r.stock_losses), icon: PackageMinus, color: 'bg-rose-50 text-price' },
     { label: 'Stock value now', value: usd(r.stock_value), icon: Boxes, color: 'bg-violet-50 text-violet-600' },
+    { label: 'Expenses', value: usd(r.expenses), icon: TrendingDown, color: 'bg-rose-50 text-price' },
+    { label: 'Profit after expenses', value: usd(r.net_profit), icon: Wallet, color: r.net_profit >= 0 ? 'bg-ok-soft text-ok' : 'bg-rose-50 text-price' },
   ]
 })
 
