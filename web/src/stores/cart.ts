@@ -67,6 +67,12 @@ export const useCart = defineStore('cart', () => {
     return true
   }
 
+  /** Before payment: a discount that came back with a held order lost its approval when the order was held,
+   *  so the manager approves it again (otherwise the service refuses the sale). */
+  function approveDiscounts() {
+    return hasAnyDiscount.value ? approve('Approve discount') : Promise.resolve(true)
+  }
+
   /** Takes items off an unpaid order. Cashiers need a manager PIN (asked once per order); the service checks
    *  it and writes the void to the activity log. Returns false when not approved. */
   async function recordVoid(kind: 'line' | 'clear' | 'parked', items: { name: string; qty: number; amount: number }[]) {
@@ -307,6 +313,7 @@ export const useCart = defineStore('cart', () => {
     resume,
     discardHeld,
     syncPrices,
+    approveDiscounts,
     saleRequest,
   }
 })

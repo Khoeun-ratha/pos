@@ -14,8 +14,11 @@ watch(
   async (dialog) => {
     value.value = dialog?.initial ?? ''
     await nextTick()
-    input.value?.focus()
-    input.value?.select()
+    // after the key press that opened the dialog is over: an Enter that opened it must not also submit it
+    setTimeout(() => {
+      input.value?.focus()
+      input.value?.select()
+    })
   },
 )
 

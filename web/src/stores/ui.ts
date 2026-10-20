@@ -52,8 +52,14 @@ export const useUi = defineStore('ui', () => {
     toast(e instanceof Error ? e.message : String(e), 'error')
   }
 
+  /** Shows a dialog. One at a time: a dialog still open is cancelled, so whoever waits on it is not left hanging. */
+  function open(next: OpenDialog) {
+    dialog.value?.resolve(null)
+    dialog.value = next
+  }
+
   function prompt(options: PromptOptions): Promise<string | null> {
-    return new Promise((resolve) => (dialog.value = { ...options, kind: 'prompt', resolve }))
+    return new Promise((resolve) => open({ ...options, kind: 'prompt', resolve }))
   }
 
   /** A prompt with a list under it. Resolves to the text and the picked value, or null when cancelled. */
@@ -64,7 +70,7 @@ export const useUi = defineStore('ui', () => {
   }
 
   async function confirm(title: string, message: string, confirmText = 'Yes', danger = false) {
-    const answer = await new Promise<string | null>((resolve) => (dialog.value = { title, message, confirmText, danger, kind: 'confirm', resolve }))
+    const answer = await new Promise<string | null>((resolve) => open({ title, message, confirmText, danger, kind: 'confirm', resolve }))
     return answer !== null
   }
 

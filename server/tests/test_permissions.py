@@ -68,3 +68,22 @@ def test_permission_change_is_logged(client, admin):
     set_permissions(client, admin, manager=["reports"], cashier=["inventory"])
     log = client.get("/api/audit", params={"action": "permissions_update"}, headers=admin).json()
     assert log and "cashier: inventory" in log[0]["detail"]
+
+
+def test_old_pin_hash_is_made_quicker_when_used(client, cashier):
+    from sqlalchemy import select
+
+    from app.database import SessionLocal
+    from app.models import User
+    from app.security import PIN_ROUNDS, hash_secret
+
+    with SessionLocal() as db:  # a PIN saved before PINs had their own cost
+        db.scalar(select(User).where(User.username == "manager")).pin_hash = hash_secret("2222", 12)
+        db.commit()
+    assert client.post("/api/auth/verify-manager-pin", json={"pin": "2222"}, headers=cashier).status_code == 200
+    with SessionLocal() as db:
+        saved = db.scalar(select(User).where(User.username == "manager")).pin_hash
+    assert saved.split("$")[2] == f"{PIN_ROUNDS:02d}"
+    # and the PIN still works
+    assert client.post("/api/auth/verify-manager-pin", json={"pin": "2222"}, headers=cashier).status_code == 200
+    assert client.post("/api/auth/verify-manager-pin", json={"pin": "9999"}, headers=cashier).status_code == 403

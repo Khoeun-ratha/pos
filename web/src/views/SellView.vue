@@ -196,6 +196,7 @@ async function startPayment() {
     if (await ui.confirm('Open a shift first', 'Count the cash in the drawer and open a shift before taking payment.', 'Open shift')) router.push('/shift')
     return
   }
+  if (!(await cart.approveDiscounts())) return
   if (await cart.syncPrices()) paying.value = true
 }
 

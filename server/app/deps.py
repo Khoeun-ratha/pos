@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from . import permissions
 from .database import get_db
 from .models import ROLE_ADMIN, AuditLog, User
-from .security import decode_token, verify_secret
+from .security import decode_token, hash_pin, pin_needs_rehash, verify_secret
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -62,7 +62,10 @@ def find_manager_by_pin(db: Session, pin: str) -> User | None:
             User.is_active.is_(True), User.role.in_(permissions.roles_with(db, "approve")), User.pin_hash.is_not(None)
         )
     )
-    return next((m for m in managers if verify_secret(pin, m.pin_hash)), None)
+    manager = next((m for m in managers if verify_secret(pin, m.pin_hash)), None)
+    if manager and pin_needs_rehash(manager.pin_hash):
+        manager.pin_hash = hash_pin(pin)  # saved with whatever the request commits
+    return manager
 
 
 def approve(db: Session, user: User, manager_pin: str | None) -> User:

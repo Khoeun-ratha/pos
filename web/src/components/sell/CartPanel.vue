@@ -30,10 +30,18 @@ watch(
   },
 )
 
+// Enter opens the manager PIN box, which takes the focus, and leaving the field applies the discount too:
+// only one approval may run at a time.
+let applying = false
 async function applyDiscount() {
   const value = parseHundredths(discountText.value) ?? 0 // $1.50 -> 150 cents; 10% -> 1000 basis points
-  if (value === cart.discountValue && (value === 0 || discountKind.value === cart.discountType)) return
-  if (!(await cart.setOrderDiscount(discountKind.value, value))) discountText.value = ''
+  if (applying || (value === cart.discountValue && (value === 0 || discountKind.value === cart.discountType))) return
+  applying = true
+  try {
+    if (!(await cart.setOrderDiscount(discountKind.value, value))) discountText.value = ''
+  } finally {
+    applying = false
+  }
 }
 
 function setKind(kind: DiscountType) {
@@ -160,7 +168,7 @@ function lineAmount(index: number) {
           inputmode="decimal"
           placeholder="0.00"
           :disabled="cart.isEmpty"
-          @keydown.enter="applyDiscount"
+          @keydown.enter.prevent="applyDiscount"
           @blur="applyDiscount"
         />
       </div>

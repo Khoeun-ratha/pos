@@ -35,7 +35,11 @@ const methods = [
 const usdOf = (p: PaymentIn) => (p.currency === 'USD' ? p.amount : khrToUsdCents(p.amount, rate.value))
 const paid = computed(() => payments.value.reduce((sum, p) => sum + usdOf(p), 0))
 const due = computed(() => total.value - paid.value)
-const dueInCurrency = computed(() => (currency.value === 'USD' ? due.value : usdCentsToKhr(due.value, rate.value)))
+// Riel cash is rounded to the 100-riel note; a card or KHQR payment in riel is exact, so it never comes to a cent
+// more than is due (which would be refused).
+const dueInCurrency = computed(() =>
+  currency.value === 'USD' ? due.value : usdCentsToKhr(due.value, rate.value, method.value === 'cash' ? 100 : 1),
+)
 /** Riel cash is rounded to the 100-riel note, so less than 100 riel short is fine (same rule as the service). */
 const canComplete = computed(() => payments.value.length > 0 && (due.value <= 0 || (payments.value.some((p) => p.currency === 'KHR') && due.value * rate.value < 100 * 100)))
 const quickAmounts = computed(() =>

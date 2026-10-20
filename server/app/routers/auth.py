@@ -6,7 +6,7 @@ from ..database import get_db
 from ..deps import audit, find_manager_by_pin, get_current_user
 from ..models import User
 from ..schemas import ApprovalOut, LoginIn, PinIn, PinLoginIn, TokenOut, UserOut
-from ..security import create_token, verify_secret
+from ..security import create_token, hash_pin, pin_needs_rehash, verify_secret
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -35,6 +35,8 @@ def pin_login(body: PinLoginIn, db: Session = Depends(get_db)):
     user = _active_user(db, body.username)
     if user is None or not verify_secret(body.pin, user.pin_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or PIN")
+    if pin_needs_rehash(user.pin_hash):
+        user.pin_hash = hash_pin(body.pin)
     return _issue(db, user, "pin")
 
 

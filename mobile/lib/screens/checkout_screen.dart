@@ -51,8 +51,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     return true;
   }
 
-  /// The amount still due in the selected currency.
-  int get _dueInCurrency => _currency == 'USD' ? _due : usdCentsToKhr(_due, _rate);
+  /// The amount still due in the selected currency. Riel cash is rounded to the 100-riel note; a card or KHQR
+  /// payment in riel is exact, so it never comes to a cent more than is due (which would be refused).
+  int get _dueInCurrency =>
+      _currency == 'USD' ? _due : usdCentsToKhr(_due, _rate, roundTo: _method == 'cash' ? 100 : 1);
 
   List<int> get _quickAmounts => _currency == 'USD'
       ? [100, 500, 1000, 2000, 5000, 10000].where((v) => v >= _due).take(4).toList()

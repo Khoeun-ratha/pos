@@ -47,13 +47,16 @@ Future<bool> recordVoid(BuildContext context, WidgetRef ref, String kind, List<(
 }
 
 /// Pay button / F12. A till takes money only into a counted drawer (offline: the server decides later).
-void startCheckout(BuildContext context, WidgetRef ref, {bool inSheet = false}) {
+Future<void> startCheckout(BuildContext context, WidgetRef ref, {bool inSheet = false}) async {
   if (ref.read(cartProvider).isEmpty) return;
   final shift = ref.read(currentShiftProvider);
   if (shift.hasValue && shift.value == null) {
     showMessage(context, 'Open a shift first: count the cash drawer on the Shift page.');
     return;
   }
+  // a discount that came back with a held order lost its approval when the order was held
+  if (ref.read(cartProvider).hasAnyDiscount && !await approveCartAction(context, ref, 'Approve discount')) return;
+  if (!context.mounted) return;
   if (inSheet) Navigator.pop(context);
   Navigator.push(context, MaterialPageRoute(builder: (_) => const CheckoutScreen()));
 }

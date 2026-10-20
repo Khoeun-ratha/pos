@@ -6,7 +6,7 @@ from ..database import get_db
 from ..deps import audit, get_current_user, require_admin
 from ..models import User
 from ..schemas import StaffOut, UserCreate, UserOut, UserUpdate
-from ..security import hash_secret
+from ..security import hash_pin, hash_secret
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -29,7 +29,7 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), admin: User = D
         username=body.username,
         full_name=body.full_name,
         password_hash=hash_secret(body.password),
-        pin_hash=hash_secret(body.pin) if body.pin else None,
+        pin_hash=hash_pin(body.pin) if body.pin else None,
         role=body.role,
     )
     db.add(user)
@@ -51,7 +51,7 @@ def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db), a
     if body.password:
         user.password_hash = hash_secret(body.password)
     if body.pin:
-        user.pin_hash = hash_secret(body.pin)
+        user.pin_hash = hash_pin(body.pin)
     if body.role:
         user.role = body.role
     if body.is_active is not None:

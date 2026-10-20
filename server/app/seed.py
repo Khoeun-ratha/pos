@@ -26,7 +26,7 @@ from .models import (
     User,
 )
 from .pricing import PERCENT, LineInput, calculate, div_round, khr_to_usd_cents, share_of, usd_cents_to_khr
-from .security import hash_secret
+from .security import hash_pin, hash_secret
 
 DEMO_USERS = [
     # username, password, PIN, role, full name
@@ -108,7 +108,7 @@ def seed(db: Session, demo_history: bool = True, demo_images: bool = True) -> No
 
     users = {}
     for username, password, pin, role, full_name in DEMO_USERS:
-        users[username] = User(username=username, password_hash=hash_secret(password), pin_hash=hash_secret(pin),
+        users[username] = User(username=username, password_hash=hash_secret(password), pin_hash=hash_pin(pin),
                                role=role, full_name=full_name)
         db.add(users[username])
 
@@ -175,7 +175,6 @@ def _history(db: Session, users: dict[str, User], products: list[Product]) -> No
 
         for number, minute in enumerate(minutes, start=1):
             created = datetime.combine(day, time(minute // 60, minute % 60, rng.randint(0, 59)))
-            seller = users["manager"] if rng.random() < 0.1 else cashier
             picked = {p.id: p for p in rng.choices(products, weights=weights, k=rng.choice([1, 1, 2, 2, 3, 4]))}
             lines = [(p, rng.choice([1, 1, 1, 2, 2, 3])) for p in picked.values()]
 
@@ -189,8 +188,8 @@ def _history(db: Session, users: dict[str, User], products: list[Product]) -> No
                 customer.points += totals.total // 100
 
             sale = Sale(
-                receipt_no=f"{day:%Y%m%d}-{number:04d}", user_id=seller.id,
-                shift_id=shift.id if seller is cashier else None,
+                # every sale goes into the drawer of the shift open at that time, as on a real till
+                receipt_no=f"{day:%Y%m%d}-{number:04d}", user_id=cashier.id, shift_id=shift.id,
                 customer_id=customer.id if customer else None,
                 subtotal=totals.subtotal, discount_total=totals.discount_total, tax_total=totals.tax_total,
                 total=totals.total, paid_total=paid, change_due=max(0, paid - totals.total),
