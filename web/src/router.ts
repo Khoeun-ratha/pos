@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import type { Permission } from '@/api/types'
 import { t } from '@/lib/i18n'
+import { REPORTS } from '@/lib/reportDefs'
 import { useAuth } from '@/stores/auth'
 
 declare module 'vue-router' {
@@ -28,6 +29,13 @@ export const router = createRouter({
         { path: 'sales', name: 'sales', component: () => import('@/views/SalesView.vue'), meta: { title: 'Sales' } },
         { path: 'shift', name: 'shift', component: () => import('@/views/ShiftView.vue'), meta: { title: 'Shift' } },
         { path: 'reports', name: 'reports', component: () => import('@/views/ReportsView.vue'), meta: { title: 'Reports', perm: 'reports' } },
+        {
+          path: 'reports/:kind',
+          name: 'report',
+          component: () => import('@/views/ReportDetailView.vue'),
+          meta: { title: 'Reports', perm: 'reports' },
+          beforeEnter: (to) => (String(to.params.kind) in REPORTS ? true : '/reports'),
+        },
         { path: 'products', name: 'products', component: () => import('@/views/ProductsView.vue'), meta: { title: 'Products', perm: 'products' } },
         { path: 'labels', name: 'labels', component: () => import('@/views/LabelsView.vue'), meta: { title: 'Barcode & QR labels', perm: ['products', 'inventory'] } },
         { path: 'inventory', name: 'inventory', component: () => import('@/views/InventoryView.vue'), meta: { title: 'Stock levels', perm: 'inventory' } },
@@ -65,5 +73,6 @@ router.beforeEach(async (to) => {
 })
 
 router.afterEach((to) => {
-  document.title = to.meta.title && to.meta.title !== 'POS' ? `${t(to.meta.title)} · POS` : 'POS'
+  const title = to.name === 'report' ? REPORTS[String(to.params.kind)]?.title : to.meta.title
+  document.title = title && title !== 'POS' ? `${t(title)} · POS` : 'POS'
 })

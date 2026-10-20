@@ -536,6 +536,98 @@ class ReportSummary(BaseModel):
     by_hour: list[HourAmount]  # always 24 entries, for the "busy hours" chart
 
 
+
+# ---------- reports by feature (Reports menu) ----------
+
+class ProductReportRow(BaseModel):
+    product_id: int | None
+    name: str
+    category: str
+    qty: int  # sold minus returned
+    sales: int  # cents, VAT included
+    cost: int
+    profit: int  # sales without VAT minus cost
+
+
+class CashierReportRow(BaseModel):
+    name: str
+    sales_count: int
+    gross: int
+    refunds: int
+    net: int
+    discounts: int
+    average_sale: int
+    voids: int  # items / orders taken off before payment
+    shifts: int  # closed in the period
+    over_short: int  # sum of the counted minus expected cash of those shifts
+
+
+class PaymentReportRow(BaseModel):
+    method: str  # Cash | Card | KHQR
+    count: int
+    received_usd: int  # cents paid in dollars
+    received_khr: int  # riel paid in riel
+    net: int  # cents, after change and refunds (as in the summary)
+
+
+class RefundReportRow(BaseModel):
+    id: int
+    created_at: datetime
+    receipt_no: str
+    sale_id: int
+    refunded_by: str
+    approved_by: str
+    reason: str
+    items: str
+    amount: int
+    cash_amount: int
+
+
+class LogReportRow(BaseModel):
+    created_at: datetime
+    user: str
+    detail: str
+
+
+class DiscountReportRow(BaseModel):
+    created_at: datetime
+    receipt_no: str
+    sale_id: int
+    cashier: str
+    approved_by: str
+    subtotal: int
+    discount: int
+    total: int
+
+
+class StockPlaceRow(BaseModel):
+    name: str
+    kind: str  # main | branch | warehouse | transit
+    qty: int
+    value: int  # at cost
+
+
+class StockFlowRow(BaseModel):
+    name: str  # supplier, or write-off reason
+    qty: int
+    value: int
+
+
+class StockReport(BaseModel):
+    places: list[StockPlaceRow]
+    received: list[StockFlowRow]  # by supplier, in the period
+    losses: list[StockFlowRow]  # by reason, in the period
+
+
+class CustomerReportRow(BaseModel):
+    customer_id: int
+    name: str
+    phone: str | None
+    visits: int
+    spent: int  # net of refunds given in the period
+    points: int
+    last_visit: datetime | None
+
 # ---------- settings / audit ----------
 
 class SettingsOut(BaseModel):

@@ -311,3 +311,82 @@ export interface ImportResult {
   updated: number
   errors: string[]
 }
+
+// ---------- reports by feature (Reports menu) ----------
+
+export interface ProductReportRow {
+  product_id: number | null
+  name: string
+  category: string
+  qty: number
+  sales: number
+  cost: number
+  profit: number
+}
+
+export interface CashierReportRow {
+  name: string
+  sales_count: number
+  gross: number
+  refunds: number
+  net: number
+  discounts: number
+  average_sale: number
+  voids: number
+  shifts: number
+  over_short: number
+}
+
+export interface PaymentReportRow {
+  method: string
+  count: number
+  received_usd: number
+  received_khr: number
+  net: number
+}
+
+export interface RefundReportRow {
+  id: number
+  created_at: string
+  receipt_no: string
+  sale_id: number
+  refunded_by: string
+  approved_by: string
+  reason: string
+  items: string
+  amount: number
+  cash_amount: number
+}
+
+export interface LogReportRow {
+  created_at: string
+  user: string
+  detail: string
+}
+
+export interface DiscountReportRow {
+  created_at: string
+  receipt_no: string
+  sale_id: number
+  cashier: string
+  approved_by: string
+  subtotal: number
+  discount: number
+  total: number
+}
+
+export interface StockReport {
+  places: { name: string; kind: string; qty: number; value: number }[]
+  received: { name: string; qty: number; value: number }[]
+  losses: { name: string; qty: number; value: number }[]
+}
+
+export interface CustomerReportRow {
+  customer_id: number
+  name: string
+  phone: string | null
+  visits: number
+  spent: number
+  points: number
+  last_visit: string | null
+}

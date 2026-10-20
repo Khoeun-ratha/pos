@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { BarElement, CategoryScale, Chart as ChartJS, LinearScale, Tooltip } from 'chart.js'
-import { AlertTriangle, Banknote, Boxes, FileSpreadsheet, PackageMinus, PackagePlus, Percent, Receipt, RotateCcw, ShoppingCart, TrendingUp, Wallet } from 'lucide-vue-next'
+import { AlertTriangle, Banknote, ChevronRight, Boxes, FileSpreadsheet, PackageMinus, PackagePlus, Percent, Receipt, RotateCcw, ShoppingCart, TrendingUp, Wallet } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { Bar } from 'vue-chartjs'
 
@@ -8,29 +8,22 @@ import { api } from '@/api/client'
 import type { NameAmount, Product, ReportSummary } from '@/api/types'
 import { saveBlob } from '@/lib/download'
 import { t } from '@/lib/i18n'
-import { addDays, isoDate, num, usd } from '@/lib/money'
+import ReportRange from '@/components/ReportRange.vue'
+import { num, usd } from '@/lib/money'
+import { rangeName, rangeQuery, reportFrom, reportTo } from '@/lib/reportRange'
 import { useUi } from '@/stores/ui'
 
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip)
 
 const ui = useUi()
-const today = isoDate(new Date())
-const from = ref(today)
-const to = ref(today)
 const report = ref<ReportSummary | null>(null)
 const lowStock = ref<Product[]>([])
 const exporting = ref(false)
 
-const ranges = [
-  { label: 'Today', days: 1 },
-  { label: '7 days', days: 7 },
-  { label: '30 days', days: 30 },
-]
-
 async function load() {
   try {
     ;[report.value, lowStock.value] = await Promise.all([
-      api.get<ReportSummary>('/reports/summary', { date_from: from.value, date_to: to.value }),
+      api.get<ReportSummary>('/reports/summary', rangeQuery()),
       api.get<Product[]>('/inventory/low-stock'),
     ])
   } catch (e) {
@@ -41,19 +34,13 @@ async function load() {
 async function exportExcel() {
   exporting.value = true
   try {
-    const blob = await api.blob('/reports/export', { date_from: from.value, date_to: to.value })
-    saveBlob(blob, from.value === to.value ? `sales-${from.value}.xlsx` : `sales-${from.value}-to-${to.value}.xlsx`)
+    const blob = await api.blob('/reports/export', { date_from: reportFrom.value, date_to: reportTo.value })
+    saveBlob(blob, `sales-${rangeName()}.xlsx`)
   } catch (e) {
     ui.error(e)
   } finally {
     exporting.value = false
   }
-}
-
-function range(days: number) {
-  to.value = today
-  from.value = isoDate(addDays(new Date(), 1 - days))
-  load()
 }
 
 const stats = computed(() => {
@@ -95,21 +82,9 @@ onMounted(load)
 
 <template>
   <div class="mx-auto max-w-7xl space-y-5 p-4 lg:p-6">
-    <div class="card flex flex-wrap items-end gap-3 p-4">
-      <div class="flex gap-1 rounded-xl bg-page p-1">
-        <button v-for="r in ranges" :key="r.days" class="rounded-lg px-3 py-1.5 font-semibold hover:bg-white" @click="range(r.days)">{{ t(r.label) }}</button>
-      </div>
-      <div>
-        <label class="label">{{ t('From') }}</label>
-        <input v-model="from" type="date" class="input py-2" :max="to" />
-      </div>
-      <div>
-        <label class="label">{{ t('To') }}</label>
-        <input v-model="to" type="date" class="input py-2" :min="from" :max="today" />
-      </div>
-      <button class="btn-primary" @click="load">{{ t('Show') }}</button>
-      <button class="btn-outline ml-auto" :disabled="exporting" @click="exportExcel"><FileSpreadsheet :size="18" /> {{ t('Export Excel') }}</button>
-    </div>
+    <ReportRange @load="load">
+      <button class="btn-outline" :disabled="exporting" @click="exportExcel"><FileSpreadsheet :size="18" /> {{ t('Export Excel') }}</button>
+    </ReportRange>
 
     <template v-if="report">
       <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -123,14 +98,20 @@ onMounted(load)
       </div>
 
       <div v-if="report.by_day.length > 1" class="card p-5">
-        <h2 class="mb-3 font-bold">{{ t('Sales by day') }}</h2>
+        <h2 class="mb-3 flex items-center font-bold">
+          <span class="flex-1">{{ t('Sales by day') }}</span>
+          <RouterLink to="/reports/time" class="flex items-center text-sm font-semibold text-primary hover:underline">{{ t('See all') }} <ChevronRight :size="16" /></RouterLink>
+        </h2>
         <div class="relative h-64 w-full"><Bar :data="chartData" :options="chartOptions" /></div>
       </div>
 
       <div class="grid gap-5 lg:grid-cols-2">
         <div class="space-y-5">
           <div class="card p-5">
-            <h2 class="mb-3 font-bold">{{ t('Top products') }}</h2>
+            <h2 class="mb-3 flex items-center font-bold">
+              <span class="flex-1">{{ t('Top products') }}</span>
+              <RouterLink to="/reports/products" class="flex items-center text-sm font-semibold text-primary hover:underline">{{ t('See all') }} <ChevronRight :size="16" /></RouterLink>
+            </h2>
             <p v-if="!report.top_products.length" class="text-muted">{{ t('No sales yet') }}</p>
             <div v-for="p in report.top_products" :key="p.name" class="mb-3">
               <div class="flex justify-between text-sm"><span class="font-semibold">{{ p.name }}</span><span>{{ usd(p.amount) }} · {{ t('{n} sold', { n: p.qty }) }}</span></div>
@@ -138,7 +119,10 @@ onMounted(load)
             </div>
           </div>
           <div class="card p-5">
-            <h2 class="mb-3 font-bold">{{ t('Categories') }}</h2>
+            <h2 class="mb-3 flex items-center font-bold">
+              <span class="flex-1">{{ t('Categories') }}</span>
+              <RouterLink to="/reports/categories" class="flex items-center text-sm font-semibold text-primary hover:underline">{{ t('See all') }} <ChevronRight :size="16" /></RouterLink>
+            </h2>
             <div v-for="c in report.by_category" :key="c.name" class="mb-3">
               <div class="flex justify-between text-sm"><span class="font-semibold">{{ c.name }}</span><span>{{ usd(c.amount) }} · {{ t('{n} sold', { n: c.qty }) }}</span></div>
               <div class="mt-1 h-2 rounded-full bg-page"><div class="h-2 rounded-full bg-violet-500" :style="{ width: share(report.by_category, c) }" /></div>
@@ -147,7 +131,10 @@ onMounted(load)
         </div>
         <div class="space-y-5">
           <div class="card overflow-x-auto">
-            <h2 class="border-b border-line px-5 py-4 font-bold">{{ t('Payment methods') }}</h2>
+            <h2 class="flex items-center border-b border-line px-5 py-4 font-bold">
+              <span class="flex-1">{{ t('Payment methods') }}</span>
+              <RouterLink to="/reports/payments" class="flex items-center text-sm font-semibold text-primary hover:underline">{{ t('See all') }} <ChevronRight :size="16" /></RouterLink>
+            </h2>
             <table class="table">
               <tbody>
                 <tr v-for="p in report.by_payment" :key="p.name"><td class="font-semibold">{{ t(p.name) }}</td><td class="text-muted">{{ t('{n} payments', { n: p.count }) }}</td><td class="text-right font-bold">{{ usd(p.amount) }}</td></tr>
@@ -155,7 +142,10 @@ onMounted(load)
             </table>
           </div>
           <div class="card overflow-x-auto">
-            <h2 class="border-b border-line px-5 py-4 font-bold">{{ t('Cashiers') }}</h2>
+            <h2 class="flex items-center border-b border-line px-5 py-4 font-bold">
+              <span class="flex-1">{{ t('Cashiers') }}</span>
+              <RouterLink to="/reports/cashiers" class="flex items-center text-sm font-semibold text-primary hover:underline">{{ t('See all') }} <ChevronRight :size="16" /></RouterLink>
+            </h2>
             <table class="table">
               <tbody>
                 <tr v-for="c in report.by_cashier" :key="c.name"><td class="font-semibold">{{ c.name }}</td><td class="text-muted">{{ t('{n} sales', { n: c.count }) }}</td><td class="text-right font-bold">{{ usd(c.amount) }}</td></tr>

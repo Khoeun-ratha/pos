@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronLeft, ChevronRight, ReceiptText, RotateCcw, Search } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
 import { api } from '@/api/client'
 import type { Sale, SaleSummary } from '@/api/types'
@@ -16,7 +17,9 @@ const auth = useAuth()
 const shift = useShift()
 const ui = useUi()
 
-const day = ref(isoDate(new Date()))
+const route = useRoute()
+// a report links here as /sales?day=2026-10-20&sale=12: that day, with the receipt open
+const day = ref(typeof route.query.day === 'string' && /^\d{4}-\d\d-\d\d$/.test(route.query.day) ? route.query.day : isoDate(new Date()))
 const query = ref('')
 const sales = ref<SaleSummary[]>([])
 const selected = ref<Sale | null>(null)
@@ -89,7 +92,10 @@ watch(day, () => {
   selected.value = null
   load()
 })
-onMounted(load)
+onMounted(() => {
+  load()
+  if (route.query.sale) open(Number(route.query.sale))
+})
 </script>
 
 <template>

@@ -57,35 +57,75 @@ def export(date_from: date | None = None, date_to: date | None = None,
     )
 
 
+def item_totals(db: Session, sales: list[Sale], refunds: list[Refund]) -> tuple[dict[str, dict], int, int]:
+    """Per product (by the name on the receipt): qty, amount, cost and revenue without tax, for the sales and the
+    refunds of a period. Also the VAT and discount given back by those refunds. Shared by the summary and the
+    product report, so their figures always agree."""
+    category_names = {p.id: p.category_name for p in db.scalars(select(Product))}
+    rows: dict[str, dict] = defaultdict(lambda: {"product_id": None, "category": "", "qty": 0, "amount": 0, "cost": 0, "revenue": 0})
+
+    def add(item: SaleItem, qty: int, amount: int, item_tax: int) -> None:
+        row = rows[item.product_name]
+        row["product_id"] = row["product_id"] or item.product_id
+        row["category"] = category_names.get(item.product_id) or "Uncategorized"
+        row["qty"] += qty
+        row["amount"] += amount
+        row["cost"] += item.unit_cost * qty
+        row["revenue"] += amount - item_tax
+
+    for sale in sales:
+        for item in sale.items:
+            add(item, item.qty, item.line_total, item.tax)
+
+    tax_back = discount_back = 0
+    if refunds:
+        lines = db.scalars(select(RefundItem).where(RefundItem.refund_id.in_([r.id for r in refunds]))).all()
+        items = {i.id: i for i in db.scalars(select(SaleItem).where(SaleItem.id.in_({l.sale_item_id for l in lines})))}
+        # units of the same item refunded earlier, so tax and discount shares add up exactly
+        before: dict[int, int] = {}
+        done: dict[int, int] = defaultdict(int)
+        for line in db.scalars(select(RefundItem).where(RefundItem.sale_item_id.in_(items)).order_by(RefundItem.id)):
+            before[line.id] = done[line.sale_item_id]
+            done[line.sale_item_id] += line.qty
+        for line in lines:
+            item = items[line.sale_item_id]
+            line_tax = share_of(before[line.id], line.qty, item.tax, item.qty)
+            tax_back += line_tax
+            discount_back += share_of(before[line.id], line.qty, item.discount, item.qty)
+            add(item, -line.qty, -line.amount, -line_tax)
+    return rows, tax_back, discount_back
+
+
+def period_sales(db: Session, start: datetime, end: datetime) -> tuple[list[Sale], list[Refund]]:
+    """A sale counts on the day it was made, a refund on the day it was given back."""
+    sales = db.scalars(select(Sale).where(Sale.created_at >= start, Sale.created_at < end)).unique().all()
+    refunds = db.scalars(select(Refund).where(Refund.created_at >= start, Refund.created_at < end).order_by(Refund.id)).all()
+    return list(sales), list(refunds)
+
+
 def build_summary(db: Session, date_from: date | None, date_to: date | None, top: int | None = 10) -> ReportSummary:
     date_from, date_to, start, end = _period(date_from, date_to)
 
     # One rule everywhere: a sale counts on the day it was made, a refund on the day it was given back,
     # so a refund never changes a report that was already printed and every total below agrees.
-    sales = db.scalars(select(Sale).where(Sale.created_at >= start, Sale.created_at < end)).all()
-    refunds = db.scalars(select(Refund).where(Refund.created_at >= start, Refund.created_at < end).order_by(Refund.id)).all()
-    category_names = {p.id: p.category_name for p in db.scalars(select(Product))}
+    sales, refunds = period_sales(db, start, end)
+    items, tax_back, discount_back = item_totals(db, sales, refunds)
 
     gross = sum(s.total for s in sales)
     refunded = sum(r.amount for r in refunds)
-    tax = sum(s.tax_total for s in sales)
-    discounts = sum(s.discount_total for s in sales)
-    cost = revenue = 0  # revenue without tax, for the profit
+    tax = sum(s.tax_total for s in sales) - tax_back
+    discounts = sum(s.discount_total for s in sales) - discount_back
+    cost = sum(r["cost"] for r in items.values())
+    revenue = sum(r["revenue"] for r in items.values())  # without tax, for the profit
     by_payment: dict[str, dict] = defaultdict(lambda: {"count": 0, "amount": 0})
     by_cashier: dict[str, dict] = defaultdict(lambda: {"count": 0, "amount": 0})
     by_category: dict[str, dict] = defaultdict(lambda: {"qty": 0, "amount": 0})
-    by_product: dict[str, dict] = defaultdict(lambda: {"qty": 0, "amount": 0})
+    by_product = {name: {"qty": r["qty"], "amount": r["amount"]} for name, r in items.items()}
+    for r in items.values():
+        by_category[r["category"]]["qty"] += r["qty"]
+        by_category[r["category"]]["amount"] += r["amount"]
     by_day: dict[date, list[int]] = defaultdict(lambda: [0, 0])
     by_hour = [[0, 0] for _ in range(24)]
-
-    def add_item(item: SaleItem, qty: int, amount: int, item_tax: int) -> None:
-        nonlocal cost, revenue
-        cost += item.unit_cost * qty
-        revenue += amount - item_tax
-        category = category_names.get(item.product_id) or "Uncategorized"
-        for row in (by_product[item.product_name], by_category[category]):
-            row["qty"] += qty
-            row["amount"] += amount
 
     for sale in sales:
         for p in sale.payments:
@@ -99,25 +139,8 @@ def build_summary(db: Session, date_from: date | None, date_to: date | None, top
         for row in (by_day[sale.created_at.date()], by_hour[sale.created_at.hour]):
             row[0] += 1
             row[1] += sale.total
-        for item in sale.items:
-            add_item(item, item.qty, item.line_total, item.tax)
 
     if refunds:
-        lines = db.scalars(select(RefundItem).where(RefundItem.refund_id.in_([r.id for r in refunds]))).all()
-        items = {i.id: i for i in db.scalars(select(SaleItem).where(SaleItem.id.in_({l.sale_item_id for l in lines})))}
-        # units of the same item refunded earlier, so tax and discount shares add up exactly
-        before: dict[int, int] = {}
-        done: dict[int, int] = defaultdict(int)
-        for line in db.scalars(select(RefundItem).where(RefundItem.sale_item_id.in_(items)).order_by(RefundItem.id)):
-            before[line.id] = done[line.sale_item_id]
-            done[line.sale_item_id] += line.qty
-        for line in lines:
-            item = items[line.sale_item_id]
-            line_tax = share_of(before[line.id], line.qty, item.tax, item.qty)
-            tax -= line_tax
-            discounts -= share_of(before[line.id], line.qty, item.discount, item.qty)
-            add_item(item, -line.qty, -line.amount, -line_tax)
-
         for refund in refunds:
             sale = refund.sale
             if refund.cash_amount:

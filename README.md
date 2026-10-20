@@ -142,6 +142,13 @@ All three parts calculate prices the same way (`server/app/pricing.py`, `web/src
 - Customers with loyalty points and purchase history
 - Reports: net sales, profit, daily chart, top products, categories, payment methods, cashiers,
   stock received, stock losses, stock value; **Export Excel** (summary, days, products, every receipt, losses)
+  - **Reports menu** (web), one page per report, all for the same chosen period (today, yesterday, 7 / 30 days,
+    this / last month, or any dates): Overview, Sales by product (qty, sales, cost, profit, margin), Sales by
+    category, Sales by day & hour, Payment methods (received in USD and in riel), Sales by cashier (refunds,
+    discounts, voids, over / short), Refunds & voids (who approved), Discounts (who approved), Shifts & cash,
+    Stock & losses (stock in every place, deliveries by supplier, losses by reason), Customers (best buyers).
+    Sort any column, search the table, totals row, **Download for Excel** (CSV, Khmer-safe); receipt numbers open
+    the sale. Every report adds up to the overview for the same days
 - Admin: store settings and shop logo (printed on receipts), users, activity log (who did what and when)
 - Web app in **English or Khmer** (EN / ខ្មែរ switch at the top; translations in `web/src/lib/km.ts`)
 - Mobile works offline: sales are saved on the phone and synced later (no duplicates)

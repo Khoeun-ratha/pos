@@ -25,6 +25,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { lang, setLang, t } from '@/lib/i18n'
 import { khr } from '@/lib/money'
+import { REPORT_MENU } from '@/lib/reportDefs'
 import type { Permission } from '@/api/types'
 import { useAuth } from '@/stores/auth'
 import { useShift } from '@/stores/shift'
@@ -49,7 +50,13 @@ const MENU: MenuItem[] = [
   { to: '/sell', label: 'POS', icon: ShoppingCart },
   { to: '/sales', label: 'Sales', icon: ReceiptText },
   { to: '/shift', label: 'Shift', icon: Clock },
-  { to: '/reports', label: 'Reports', icon: ChartColumn, perm: 'reports' },
+  {
+    to: '/reports',
+    label: 'Reports',
+    icon: ChartColumn,
+    perm: 'reports',
+    children: [{ to: '/reports', label: 'Overview' }, ...REPORT_MENU.map(([kind, label]) => ({ to: `/reports/${kind}`, label }))],
+  },
   {
     to: '/products',
     label: 'Products',
