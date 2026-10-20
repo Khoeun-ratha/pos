@@ -33,7 +33,8 @@ def test_demo_history_is_consistent():
         assert month["sales_count"] > 200
         assert month["refunds"] > 0
         assert month["profit"] > 0
-        assert {p["name"] for p in month["by_payment"]} == {"Cash", "Card", "KHQR"}
+        assert {"Cash", "Card", "KHQR"} <= {p["name"] for p in month["by_payment"]} <= {"Cash", "Card", "KHQR", "Riel rounding"}
+        assert sum(p["amount"] for p in month["by_payment"]) == month["net_sales"]
 
         shifts = client.get("/api/shifts", headers=manager).json()
         closed = [s for s in shifts if not s["is_open"]]

@@ -6,7 +6,7 @@ import { useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import type { ParkedOrder, ShiftHandover, ShiftReport, Staff } from '@/api/types'
 import AppModal from '@/components/AppModal.vue'
-import { dateTime, parseHundredths, parseWhole, usd } from '@/lib/money'
+import { dateTime, day, khr, khrToUsdCents, parseHundredths, parseWhole, time, usd } from '@/lib/money'
 import { printReceipt } from '@/lib/print'
 import { useAuth } from '@/stores/auth'
 import { useShift } from '@/stores/shift'
@@ -19,6 +19,7 @@ const ui = useUi()
 const router = useRouter()
 
 const openingCash = ref('0')
+const openingKhr = ref('')
 const history = ref<ShiftReport[]>([])
 /** Counting the drawer: to close my shift, to hand it to the next cashier, or (manager) to close someone's shift. */
 const closing = ref<{ mode: 'close' | 'handover' } | { mode: 'other'; shift: ShiftReport } | null>(null)
@@ -31,6 +32,14 @@ const staff = ref<Staff[]>([])
 const nextUserId = ref<number | ''>('')
 const nextPin = ref('')
 const busy = ref(false)
+
+/** The drawer holds dollars and riel; the service keeps one amount in cents, at today's rate (as when closing). */
+const cents = (usdText: string, khrText: string) => {
+  const dollars = usdText.trim() ? parseHundredths(usdText) : 0
+  const riel = khrText.trim() ? parseWhole(khrText) : 0
+  return dollars === null || riel === null ? null : dollars + khrToUsdCents(riel, auth.settings.exchange_rate)
+}
+const countedTotal = computed(() => cents(countedUsd.value, countedKhr.value))
 
 const seesAll = computed(() => auth.can('reports') || auth.can('all_sales'))
 const others = computed(() => staff.value.filter((s) => s.id !== auth.user?.id))
@@ -47,7 +56,7 @@ function rows(r: ShiftReport): [string, string, string?][] {
   ]
   if (r.counted_cash !== null) list.push(['Counted', usd(r.counted_cash), 'font-bold'])
   if (r.variance !== null) {
-    list.push([r.variance === 0 ? 'Balanced' : r.variance > 0 ? 'Over' : 'Short', usd(Math.abs(r.variance)), r.variance === 0 ? 'font-bold text-ok' : 'font-bold text-price'])
+    list.push([r.variance === 0 ? 'Balanced' : r.variance > 0 ? 'Over' : 'Short', usd(Math.abs(r.variance)), r.variance === 0 ? 'font-bold text-ok' : r.variance > 0 ? 'font-bold text-warn' : 'font-bold text-price'])
   }
   list.push(['Card sales', usd(r.card_sales)], ['KHQR sales', usd(r.khqr_sales)])
   if (r.handed_from_name) list.unshift(['Taken over from', r.handed_from_name])
@@ -78,9 +87,9 @@ async function run(action: () => Promise<unknown>) {
 }
 
 function open() {
-  const cents = parseHundredths(openingCash.value)
-  if (cents === null) return ui.toast('Enter the opening cash, e.g. 20.00', 'error')
-  run(() => api.post('/shifts/open', { opening_cash: cents }))
+  const opening = cents(openingCash.value, openingKhr.value)
+  if (opening === null) return ui.toast('Enter the opening cash, e.g. 20.00', 'error')
+  run(() => api.post('/shifts/open', { opening_cash: opening }))
 }
 
 async function cashMovement(cashIn: boolean) {
@@ -147,7 +156,7 @@ onMounted(() => run(async () => {}))
 </script>
 
 <template>
-  <div class="mx-auto grid max-w-6xl gap-5 p-4 lg:grid-cols-[minmax(0,420px)_1fr] lg:p-6">
+  <div class="mx-auto grid max-w-7xl gap-5 p-4 lg:grid-cols-[minmax(0,360px)_1fr] lg:p-6">
     <div class="space-y-4">
       <div v-if="shift.loaded && !shift.current" class="card p-6">
         <div class="mb-4 flex items-center gap-3">
@@ -157,8 +166,19 @@ onMounted(() => run(async () => {}))
             <p class="text-sm text-muted">{{ t('Count the cash in the drawer to start.') }}</p>
           </div>
         </div>
-        <label class="label">{{ t('Opening cash (USD)') }}</label>
-        <input v-model="openingCash" class="input mb-4 text-lg" inputmode="decimal" @keydown.enter="open" />
+        <div class="mb-4 grid grid-cols-2 gap-3">
+          <div>
+            <label class="label">{{ t('Opening cash (USD)') }}</label>
+            <input v-model="openingCash" class="input text-lg" inputmode="decimal" @keydown.enter="open" />
+          </div>
+          <div>
+            <label class="label">{{ t('Riel in the drawer') }}</label>
+            <input v-model="openingKhr" class="input text-lg" inputmode="numeric" placeholder="0" @keydown.enter="open" />
+          </div>
+        </div>
+        <p v-if="openingKhr.trim() && cents(openingCash, openingKhr) !== null" class="-mt-2 mb-4 text-sm text-muted">
+          {{ t('Opening cash') }}: <b class="text-ink">{{ usd(cents(openingCash, openingKhr)!) }}</b> (1 USD = {{ khr(auth.settings.exchange_rate) }})
+        </p>
         <button class="btn-primary w-full py-3" @click="open">{{ t('Open shift') }}</button>
       </div>
 
@@ -167,7 +187,7 @@ onMounted(() => run(async () => {}))
           <div class="flex size-11 items-center justify-center rounded-xl bg-ok-soft text-ok"><LockKeyholeOpen :size="22" /></div>
           <div>
             <h2 class="text-lg font-bold">{{ t('Shift open') }}</h2>
-            <p class="text-sm text-muted">{{ shift.current.cashier_name }} · since {{ dateTime(shift.current.opened_at) }}</p>
+            <p class="text-sm text-muted">{{ shift.current.cashier_name }} · {{ t('since {time}', { time: dateTime(shift.current.opened_at) }) }}</p>
           </div>
         </div>
         <dl class="space-y-1.5">
@@ -187,26 +207,29 @@ onMounted(() => run(async () => {}))
       </div>
     </div>
 
-    <div class="card min-w-0 overflow-x-auto">
+    <div class="@container card min-w-0 overflow-x-auto">
       <h2 class="border-b border-line px-5 py-4 font-bold">{{ seesAll ? t('Recent shifts (all cashiers)') : t('My recent shifts') }}</h2>
-      <table class="table min-w-[640px]">
+      <table class="table min-w-[520px] [&_td]:px-3 [&_th]:px-3">
         <thead>
           <tr>
-            <th>{{ t('Cashier') }}</th><th>{{ t('Opened') }}</th><th class="text-right">{{ t('Sales') }}</th><th class="text-right">{{ t('Expected') }}</th>
+            <th>{{ t('Cashier') }}</th><th>{{ t('Opened') }}</th><th class="hidden text-right @2xl:table-cell">{{ t('Sales') }}</th><th class="text-right">{{ t('Expected') }}</th>
             <th class="text-right">{{ t('Counted') }}</th><th class="text-right">{{ t('Over / short') }}</th><th class="text-right">{{ t('Actions') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="s in history" :key="s.id">
             <td>
-              <p class="font-semibold">{{ s.cashier_name }}</p>
-              <p v-if="s.handed_to_name" class="text-xs text-muted">→ {{ s.handed_to_name }}</p>
+              <p class="font-semibold whitespace-nowrap">{{ s.cashier_name }}</p>
+              <p v-if="s.handed_to_name" class="text-xs whitespace-nowrap text-muted">→ {{ s.handed_to_name }}</p>
             </td>
-            <td class="whitespace-nowrap text-muted">{{ dateTime(s.opened_at) }}</td>
-            <td class="text-right">{{ s.sales_count }}</td>
+            <td class="whitespace-nowrap text-muted">
+              <p>{{ day(s.opened_at) }}</p>
+              <p class="text-xs">{{ time(s.opened_at) }}{{ s.closed_at ? ` – ${time(s.closed_at)}` : '' }}</p>
+            </td>
+            <td class="hidden text-right @2xl:table-cell">{{ s.sales_count }}</td>
             <td class="text-right">{{ usd(s.expected_cash) }}</td>
             <td class="text-right">{{ s.counted_cash === null ? '—' : usd(s.counted_cash) }}</td>
-            <td :class="['text-right font-semibold', s.variance ? 'text-price' : 'text-ok']">
+            <td :class="['text-right font-semibold whitespace-nowrap', !s.variance ? 'text-ok' : s.variance < 0 ? 'text-price' : 'text-warn']">
               {{ s.is_open ? t('open') : s.variance === null ? '—' : s.variance === 0 ? t('balanced') : (s.variance > 0 ? '+' : '-') + usd(Math.abs(s.variance)) }}
             </td>
             <td class="text-right whitespace-nowrap">
@@ -253,6 +276,9 @@ onMounted(() => run(async () => {}))
         <div>
           <label class="label">{{ t('Riel counted') }}</label>
           <input v-model="countedKhr" class="input text-lg" inputmode="numeric" placeholder="0" />
+        </div>
+        <div v-if="countedTotal !== null" class="flex justify-between rounded-xl bg-page px-3 py-2 font-semibold">
+          <span class="text-muted">{{ t('Counted') }}</span><span>{{ usd(countedTotal) }}</span>
         </div>
         <div v-if="closing.mode === 'handover'">
           <label class="label">{{ t('PIN of the next cashier (they type it)') }}</label>

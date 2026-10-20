@@ -136,7 +136,8 @@ All three parts calculate prices the same way (`server/app/pricing.py`, `web/src
 - 80mm receipts: print, copy, reprint; optional automatic printing after each sale
 - Void items with manager PIN
 - Refunds (full or partial) with manager approval; stock goes back automatically
-- Shifts: opening cash, cash in/out, close with counted USD + riel, over/short report (printable)
+- Shifts: opening cash in USD and riel, cash in/out, close with counted USD + riel (the count shows the total of
+  both), over / short report (printable; over in amber, short in red)
   - **Hand over to next cashier** without emptying the drawer: count together, the next cashier types their own PIN;
     the first shift closes with that count (over / short is theirs) and the next one opens with exactly that cash
   - a manager can count and close a shift its cashier left open; cashiers see their own past shifts and reprint them
@@ -259,7 +260,7 @@ Release build: `flutter build apk --release` (iOS needs a Mac).
 | Part | Folder | Run while coding | Tests |
 |---|---|---|---|
 | Service | `server/` | `.venv\Scripts\python -m uvicorn app.main:app --reload` | `.venv\Scripts\python -m pytest` |
-| Web | `web/` | `npm run dev` (http://localhost:8080, reloads on save) | `npm run build` (type check) and `npm run e2e` (real browser: sell, pay, refund, every page, barcode scanning incl. camera) |
+| Web | `web/` | `npm run dev` (http://localhost:8080, reloads on save) | `npm run build` (type check) and `npm run e2e` (real browser: sell, pay, refund, barcode scanning incl. camera; discount with PIN, hold / resume, split payment, cash out, closing the drawer in USD + riel; every page at desktop, laptop and phone width with nothing cut off) |
 | Mobile | `mobile/` | `flutter run` | `flutter test` |
 
 ```

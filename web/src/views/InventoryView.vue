@@ -307,8 +307,10 @@ onMounted(() => {
             <td class="text-right text-muted">{{ p.low_stock_threshold }}</td>
             <td class="text-right font-semibold">{{ usd(Math.max(qty(p), 0) * p.cost) }}</td>
             <td class="text-right whitespace-nowrap">
-              <button class="btn-ghost p-2" :title="t('Receive stock')" @click="stockFor = { product: p, mode: 'receive' }"><PackagePlus :size="17" /></button>
-              <button class="btn-ghost p-2" :title="t('Damaged / expired / lost')" @click="stockFor = { product: p, mode: 'write_off' }"><PackageMinus :size="17" /></button>
+              <button class="btn mr-1 bg-ok-soft px-2.5 py-1.5 text-sm text-ok hover:brightness-95" :title="t('Receive stock')" @click="stockFor = { product: p, mode: 'receive' }">
+                <PackagePlus :size="16" /> {{ t('Receive') }}
+              </button>
+              <button class="btn-ghost p-2 text-price" :title="t('Damaged / expired / lost')" @click="stockFor = { product: p, mode: 'write_off' }"><PackageMinus :size="17" /></button>
               <button class="btn-ghost p-2" :title="t('Stock count')" @click="count(p)"><ClipboardCheck :size="17" /></button>
               <button class="btn-ghost p-2" :title="t('Stock history')" @click="showHistory(p)"><History :size="17" /></button>
               <button class="btn-ghost p-2" :title="t('Barcode / QR label')" @click="labelsFor = [p]"><Barcode :size="17" /></button>

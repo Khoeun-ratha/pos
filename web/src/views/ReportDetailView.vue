@@ -104,6 +104,9 @@ function chartFor(s: Section) {
   }
 }
 
+// a wide table scrolls sideways; its first column (cashier, product...) stays in view, so every row keeps its name
+const pinned = 'sticky left-0 z-[1] bg-white whitespace-nowrap shadow-[inset_-1px_0_0_var(--color-line)]'
+
 /** CSV that Excel opens (with Khmer text): every table of the page, one after the other. */
 function download() {
   const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
@@ -151,7 +154,7 @@ function download() {
         <table class="table">
           <thead>
             <tr>
-              <th v-for="c in s.columns" :key="c.key" :class="['cursor-pointer whitespace-nowrap select-none', isNumber(c) && 'text-right']" @click="toggleSort(i, c)">
+              <th v-for="(c, j) in s.columns" :key="c.key" :class="['cursor-pointer whitespace-nowrap select-none', isNumber(c) && 'text-right', j === 0 && pinned]" @click="toggleSort(i, c)">
                 {{ t(c.label) }}
                 <ArrowDown v-if="sortBy[i]?.key === c.key && sortBy[i]!.desc" :size="13" class="inline" />
                 <ArrowUp v-else-if="sortBy[i]?.key === c.key" :size="13" class="inline" />
@@ -161,12 +164,14 @@ function download() {
           <tbody>
             <tr v-for="(r, n) in rowsOf(i, s)" :key="n">
               <td
-                v-for="c in s.columns"
+                v-for="(c, j) in s.columns"
                 :key="c.key"
                 :class="[
-                  isNumber(c) ? 'text-right whitespace-nowrap tabular-nums' : '',
+                  isNumber(c) && 'text-right whitespace-nowrap tabular-nums',
+                  c.format === 'datetime' && 'whitespace-nowrap text-muted',
                   c.format === 'signed' && Number(r[c.key]) < 0 && 'text-price font-semibold',
-                  c.format === 'signed' && Number(r[c.key]) > 0 && 'text-ok font-semibold',
+                  c.format === 'signed' && Number(r[c.key]) > 0 && 'text-warn font-semibold',
+                  j === 0 && pinned,
                 ]"
               >
                 <RouterLink v-if="c.sale" :to="saleLink(r, c)" class="font-semibold text-primary hover:underline">{{ r[c.key] }}</RouterLink>
@@ -179,7 +184,7 @@ function download() {
           </tbody>
           <tfoot v-if="hasTotals(s) && rowsOf(i, s).length > 1">
             <tr class="border-t-2 border-line font-bold">
-              <td v-for="(c, j) in s.columns" :key="c.key" :class="isNumber(c) && 'text-right whitespace-nowrap tabular-nums'">
+              <td v-for="(c, j) in s.columns" :key="c.key" :class="[isNumber(c) && 'text-right whitespace-nowrap tabular-nums', j === 0 && pinned]">
                 {{ c.total ? format(total(rowsOf(i, s), c), c) : j === 0 ? t('Total') : '' }}
               </td>
             </tr>

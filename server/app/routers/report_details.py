@@ -80,10 +80,8 @@ def payments(date_from: date | None = None, date_to: date | None = None,
             row["received_usd" if p.currency == "USD" else "received_khr"] += p.amount
     net = {r.name: r.amount for r in summary.by_payment}
     out = [PaymentReportRow(method=name, net=net.get(name, 0), **r) for name, r in rows.items() if r["count"] or net.get(name)]
-    # riel cash is taken to the 100-riel note, so a sale may be paid a few riel short: show it, so the rows add up
-    rounding = summary.net_sales - sum(r.net for r in out)
-    if rounding:
-        out.append(PaymentReportRow(method="Riel rounding", count=0, received_usd=0, received_khr=0, net=rounding))
+    if net.get("Riel rounding"):  # the summary's row, so these rows add up to the net sales too
+        out.append(PaymentReportRow(method="Riel rounding", count=0, received_usd=0, received_khr=0, net=net["Riel rounding"]))
     return out
 
 

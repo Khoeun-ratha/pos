@@ -32,9 +32,11 @@ export const toDollars = (cents: number) => (cents / 100).toFixed(2)
 
 const dateTimeFormat = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
 const timeFormat = new Intl.DateTimeFormat('en-GB', { timeStyle: 'short' })
+const dateFormat = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium' })
 
 export const dateTime = (iso: string) => dateTimeFormat.format(new Date(iso))
 export const time = (iso: string) => timeFormat.format(new Date(iso))
+export const day = (iso: string) => dateFormat.format(new Date(iso))
 
 /** yyyy-mm-dd in local time. */
 export function isoDate(date: Date) {

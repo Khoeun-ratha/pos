@@ -153,6 +153,10 @@ def build_summary(db: Session, date_from: date | None, date_to: date | None, top
             by_cashier[sale.cashier_name]["amount"] -= refund.amount
             by_day[refund.created_at.date()][1] -= refund.amount
             by_hour[refund.created_at.hour][1] -= refund.amount
+    # riel cash is taken to the 100-riel note, so a sale may be paid a few riel short: show it, so the rows add up
+    rounding = gross - refunded - sum(row["amount"] for row in by_payment.values())
+    if rounding:
+        by_payment["Riel rounding"]["amount"] += rounding
 
     stock_costs = dict(db.execute(
         select(StockMovement.kind, func.sum(StockMovement.change * StockMovement.unit_cost))

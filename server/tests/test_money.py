@@ -30,6 +30,21 @@ def test_report_counts_change_once_for_split_cash(client, cashier, manager):
     assert payments_of(client.get("/api/reports/summary", headers=manager).json()) == {"Cash": 715}
 
 
+def test_riel_rounding_shows_in_every_payment_breakdown(client, manager, admin):
+    """$3.30 at 4100 is 13530 riel; the customer hands over 13500 (the 100-riel note), worth $3.29."""
+    client.put("/api/settings", headers=admin, json={"exchange_rate": 4100, "tax_rate_bp": 0})
+    product = client.post("/api/products", headers=manager, json={"name": "Rounding test", "price": 330, "stock_qty": 5}).json()
+    open_shift(client, manager)
+    sale = checkout(client, manager, [{"product_id": product["id"], "qty": 1}],
+                    [{"method": "cash", "currency": "KHR", "amount": 13500}]).json()
+    assert sale["total"] == 330 and sale["paid_total"] == 329
+
+    report = client.get("/api/reports/summary", headers=manager).json()
+    assert payments_of(report) == {"Cash": 329, "Riel rounding": 1}
+    rows = client.get("/api/reports/payments", headers=manager).json()
+    assert sum(r["net"] for r in rows) == report["net_sales"] == 330
+
+
 def test_card_refund_leaves_the_cash_drawer_alone(client, manager):
     open_shift(client, manager, 2000)
     rice = product_by_name(client, manager, "Jasmine Rice 5kg")

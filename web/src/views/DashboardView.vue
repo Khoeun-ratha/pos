@@ -197,7 +197,8 @@ const chartOptions = {
 // ---------- payment mix ----------
 const paymentColors: Record<string, string> = { Cash: '#16a34a', Card: '#2563eb', KHQR: '#e11d48' }
 const payments = computed(() => {
-  const rows = current.value?.by_payment ?? []
+  // a few cents of riel rounding would only clutter the mix; Reports › Payment methods shows them
+  const rows = (current.value?.by_payment ?? []).filter((r) => r.name !== 'Riel rounding')
   const total = rows.reduce((n, r) => n + r.amount, 0) || 1
   return rows.map((r) => ({ ...r, share: Math.round((r.amount / total) * 100), color: paymentColors[r.name] ?? '#94a3b8' }))
 })
@@ -301,12 +302,12 @@ const statusClass = { completed: 'bg-ok-soft text-ok', partially_refunded: 'bg-w
 
       <div class="card flex min-w-0 flex-col p-5">
         <h3 class="font-bold">{{ t('Payment methods') }}</h3>
-        <p class="text-sm text-muted">{{ t('Money taken at the till, before refunds') }}</p>
+        <p class="text-sm text-muted">{{ t('Money taken at the till, after change and refunds') }}</p>
         <div v-if="payments.length" class="relative mx-auto my-4 size-48">
           <Doughnut :data="paymentChart" :options="paymentOptions" />
           <div class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
             <span class="text-xs text-muted">{{ t('Total') }}</span>
-            <span class="text-xl font-extrabold">{{ usd(payments.reduce((n, p) => n + p.amount, 0)) }}</span>
+            <span class="text-xl font-extrabold">{{ usd(current?.net_sales ?? 0) }}</span>
           </div>
         </div>
         <p v-else class="flex flex-1 items-center justify-center text-muted">{{ t('No payments yet') }}</p>

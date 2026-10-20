@@ -42,11 +42,13 @@ const dueInCurrency = computed(() =>
 )
 /** Riel cash is rounded to the 100-riel note, so less than 100 riel short is fine (same rule as the service). */
 const canComplete = computed(() => payments.value.length > 0 && (due.value <= 0 || (payments.value.some((p) => p.currency === 'KHR') && due.value * rate.value < 100 * 100)))
-const quickAmounts = computed(() =>
-  currency.value === 'USD'
-    ? [100, 500, 1000, 2000, 5000, 10000].filter((v) => v >= due.value).slice(0, 4)
-    : [10000, 20000, 50000, 100000].filter((v) => v >= dueInCurrency.value).slice(0, 3),
-)
+/** What customers hand over: the amount due rounded up to the next note (36,100 ៛ -> 37,000 / 40,000 / 50,000...). */
+const quickAmounts = computed(() => {
+  const owed = dueInCurrency.value
+  const notes = currency.value === 'USD' ? [100, 500, 1000, 2000, 5000, 10000] : [1000, 5000, 10000, 50000, 100000]
+  const ups = notes.map((n) => Math.ceil(owed / n) * n).filter((v) => v > owed)
+  return [...new Set(ups)].sort((a, b) => a - b).slice(0, 4)
+})
 const fmt = (amount: number, cur: Currency) => (cur === 'USD' ? usd(amount) : khr(amount))
 const entered = () => (currency.value === 'USD' ? parseHundredths(amountText.value) : parseWhole(amountText.value))
 
