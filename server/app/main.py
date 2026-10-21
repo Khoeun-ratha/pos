@@ -8,8 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from .config import UPLOAD_DIR, config
 from .database import SessionLocal, engine
 from .migrate import migrate
-from .routers import (admin, auth, catalog, customers, expenses, inventory, locations, parked, report_details, reports, sales,
-                      shifts, suppliers, users)
+from .routers import (admin, auth, catalog, customers, expenses, inventory, locations, parked, registers, report_details, reports,
+                      sales, shifts, suppliers, users)
 from .seed import seed
 
 
@@ -25,8 +25,8 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="POS Service", version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=config.cors_origins, allow_methods=["*"], allow_headers=["*"])
 
-for module in (auth, users, catalog, inventory, locations, suppliers, customers, sales, parked, shifts, expenses, reports,
-               report_details, admin):
+for module in (auth, users, catalog, inventory, locations, suppliers, customers, sales, parked, registers, shifts, expenses,
+               reports, report_details, admin):
     app.include_router(module.router)
 
 # product photos (see app/images.py)

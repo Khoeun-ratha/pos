@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..deps import audit, get_current_user, require_perm
 from ..images import InvalidImage, delete_product_image, save_product_image
-from ..models import Category, Product, StockMovement, User
+from ..models import Category, LocationStock, Product, StockMovement, User
 from ..schemas import CategoryIn, CategoryOut, ImportResult, ProductCreate, ProductIn, ProductOut
 
 router = APIRouter(prefix="/api", tags=["catalog"])
@@ -106,6 +106,7 @@ def list_products(
     q: str | None = None,
     category_id: int | None = None,
     include_inactive: bool = False,
+    location_id: int | None = Query(None, description="show the stock of this branch / warehouse (the till of a branch)"),
     limit: int = Query(500, le=5000),
     offset: int = 0,
     db: Session = Depends(get_db),
@@ -119,7 +120,11 @@ def list_products(
         query = query.where(Product.category_id == category_id)
     if not include_inactive:
         query = query.where(Product.is_active.is_(True))
-    return db.scalars(query.order_by(Product.name).limit(limit).offset(offset)).all()
+    products = db.scalars(query.order_by(Product.name).limit(limit).offset(offset)).all()
+    if location_id is None:
+        return products
+    there = dict(db.execute(select(LocationStock.product_id, LocationStock.qty).where(LocationStock.location_id == location_id)).all())
+    return [ProductOut.model_validate(p).model_copy(update={"stock_qty": there.get(p.id, 0)}) for p in products]
 
 
 def barcode_variants(code: str) -> list[str]:

@@ -10,7 +10,13 @@ import '../widgets/product_image.dart';
 import 'scanner_screen.dart';
 
 final allProductsProvider = FutureProvider.autoDispose<List<Product>>((ref) async {
-  final data = await ref.watch(apiProvider).get('/api/products', query: {'include_inactive': 'true', 'limit': '5000'});
+  // staff of a branch see (and receive / count) their branch's stock
+  final branch = ref.watch(sessionProvider).user?.locationId;
+  final data = await ref.watch(apiProvider).get('/api/products', query: {
+    'include_inactive': 'true',
+    'limit': '5000',
+    if (branch != null) 'location_id': '$branch',
+  });
   return [for (final p in data) Product.fromJson(p)];
 });
 

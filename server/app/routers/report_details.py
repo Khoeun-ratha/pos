@@ -10,30 +10,36 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import require_perm
 from ..models import (AuditLog, Location, LocationStock, Product, RefundItem, Sale, SaleItem, Shift, StockMovement,
                       StockTransfer, StockTransferItem, Supplier, User)
 from ..schemas import (CashierReportRow, CustomerReportRow, DiscountReportRow, ExpenseCategoryOut, ExpenseOut, ExpenseReport,
                        LogReportRow, PaymentReportRow,
                        ProductReportRow, RefundReportRow, ShiftReport, StockFlowRow, StockPlaceRow, StockReport)
 from .expenses import expenses_between
-from .reports import METHOD_NAMES, _period, build_summary, item_totals, period_sales
+from .reports import METHOD_NAMES, Outlet, _filtered, _period, build_summary, item_totals, period_sales, report_outlet
+from .shifts import at_outlet
 from .shifts import report as shift_report
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
-reports_perm = require_perm("reports")
 
 
 def _name(user: User | None) -> str:
     return (user.full_name or user.username) if user else ""
 
 
+def _staff_of(outlet: Outlet):
+    """Activity-log entries (voids) of the outlet's staff: logs carry the person, not the till."""
+    if not outlet.one:
+        return None
+    return AuditLog.user_id.in_(select(User.id).where(outlet.where(User.location_id)))
+
+
 @router.get("/products", response_model=list[ProductReportRow])
 def products(date_from: date | None = None, date_to: date | None = None,
-             db: Session = Depends(get_db), _: User = Depends(reports_perm)):
+             db: Session = Depends(get_db), outlet: Outlet = Depends(report_outlet)):
     """Every product sold (or returned) in the period, with its cost and profit."""
     *_, start, end = _period(date_from, date_to)
-    rows, _, _ = item_totals(db, *period_sales(db, start, end))
+    rows, _, _ = item_totals(db, *period_sales(db, start, end, outlet))
     out = [ProductReportRow(product_id=r["product_id"], name=name, category=r["category"], qty=r["qty"], sales=r["amount"],
                             cost=r["cost"], profit=r["revenue"] - r["cost"])
            for name, r in rows.items() if r["qty"] or r["amount"]]
@@ -42,9 +48,9 @@ def products(date_from: date | None = None, date_to: date | None = None,
 
 @router.get("/cashiers", response_model=list[CashierReportRow])
 def cashiers(date_from: date | None = None, date_to: date | None = None,
-             db: Session = Depends(get_db), _: User = Depends(reports_perm)):
+             db: Session = Depends(get_db), outlet: Outlet = Depends(report_outlet)):
     *_, start, end = _period(date_from, date_to)
-    sales, refunds = period_sales(db, start, end)
+    sales, refunds = period_sales(db, start, end, outlet)
     rows: dict[str, dict] = defaultdict(lambda: dict.fromkeys(("sales_count", "gross", "refunds", "discounts", "voids", "shifts", "over_short"), 0))
     for s in sales:
         row = rows[s.cashier_name]
@@ -53,9 +59,11 @@ def cashiers(date_from: date | None = None, date_to: date | None = None,
         row["discounts"] += s.discount_total
     for r in refunds:  # against the cashier of the sale, as in the summary
         rows[r.sale.cashier_name]["refunds"] += r.amount
-    for log in db.scalars(select(AuditLog).where(AuditLog.action == "void", AuditLog.created_at >= start, AuditLog.created_at < end)):
+    for log in db.scalars(_filtered(select(AuditLog).where(AuditLog.action == "void", AuditLog.created_at >= start,
+                                                           AuditLog.created_at < end), _staff_of(outlet))):
         rows[_name(log.user)]["voids"] += 1
-    for shift in db.scalars(select(Shift).where(Shift.closed_at >= start, Shift.closed_at < end, Shift.counted_cash.is_not(None))):
+    closed = select(Shift).where(Shift.closed_at >= start, Shift.closed_at < end, Shift.counted_cash.is_not(None))
+    for shift in db.scalars(at_outlet(closed, outlet.location_id) if outlet.one else closed):
         row = rows[_name(shift.user)]
         row["shifts"] += 1
         row["over_short"] += shift.counted_cash - (shift.expected_cash or 0)
@@ -67,11 +75,11 @@ def cashiers(date_from: date | None = None, date_to: date | None = None,
 
 @router.get("/payments", response_model=list[PaymentReportRow])
 def payments(date_from: date | None = None, date_to: date | None = None,
-             db: Session = Depends(get_db), _: User = Depends(reports_perm)):
+             db: Session = Depends(get_db), outlet: Outlet = Depends(report_outlet)):
     """Money in by method: what was handed over in each currency, and the net after change and refunds."""
-    summary = build_summary(db, date_from, date_to)
+    summary = build_summary(db, date_from, date_to, outlet=outlet)
     *_, start, end = _period(date_from, date_to)
-    sales, _ = period_sales(db, start, end)
+    sales, _ = period_sales(db, start, end, outlet)
     rows = {name: {"count": 0, "received_usd": 0, "received_khr": 0} for name in METHOD_NAMES.values()}
     for s in sales:
         for p in s.payments:
@@ -87,9 +95,9 @@ def payments(date_from: date | None = None, date_to: date | None = None,
 
 @router.get("/refunds", response_model=list[RefundReportRow])
 def refunds(date_from: date | None = None, date_to: date | None = None,
-            db: Session = Depends(get_db), _: User = Depends(reports_perm)):
+            db: Session = Depends(get_db), outlet: Outlet = Depends(report_outlet)):
     *_, start, end = _period(date_from, date_to)
-    _, found = period_sales(db, start, end)
+    _, found = period_sales(db, start, end, outlet)
     users = {u.id: u for u in db.scalars(select(User))}
     lines: dict[int, list[str]] = defaultdict(list)
     if found:
@@ -104,20 +112,21 @@ def refunds(date_from: date | None = None, date_to: date | None = None,
 
 @router.get("/voids", response_model=list[LogReportRow])
 def voids(date_from: date | None = None, date_to: date | None = None,
-          db: Session = Depends(get_db), _: User = Depends(reports_perm)):
+          db: Session = Depends(get_db), outlet: Outlet = Depends(report_outlet)):
     """Items and orders taken off before payment (from the activity log)."""
     *_, start, end = _period(date_from, date_to)
-    logs = db.scalars(select(AuditLog).where(AuditLog.action == "void", AuditLog.created_at >= start, AuditLog.created_at < end)
+    logs = db.scalars(_filtered(select(AuditLog).where(AuditLog.action == "void", AuditLog.created_at >= start,
+                                                       AuditLog.created_at < end), _staff_of(outlet))
                       .order_by(AuditLog.id.desc()))
     return [LogReportRow(created_at=log.created_at, user=_name(log.user), detail=log.detail) for log in logs]
 
 
 @router.get("/discounts", response_model=list[DiscountReportRow])
 def discounts(date_from: date | None = None, date_to: date | None = None,
-              db: Session = Depends(get_db), _: User = Depends(reports_perm)):
+              db: Session = Depends(get_db), outlet: Outlet = Depends(report_outlet)):
     *_, start, end = _period(date_from, date_to)
-    sales = db.scalars(select(Sale).where(Sale.created_at >= start, Sale.created_at < end, Sale.discount_total > 0)
-                       .order_by(Sale.id.desc())).unique().all()
+    sales = db.scalars(_filtered(select(Sale).where(Sale.created_at >= start, Sale.created_at < end, Sale.discount_total > 0),
+                                 outlet.where(Sale.location_id)).order_by(Sale.id.desc())).unique().all()
     approvers: dict[str, str] = {}
     logs = db.scalars(select(AuditLog).where(AuditLog.action == "discount", AuditLog.created_at >= start, AuditLog.created_at < end))
     for log in logs:  # "20261020-0003: $0.50 approved by manager"
@@ -131,23 +140,30 @@ def discounts(date_from: date | None = None, date_to: date | None = None,
 
 @router.get("/shifts", response_model=list[ShiftReport])
 def shifts(date_from: date | None = None, date_to: date | None = None,
-           db: Session = Depends(get_db), _: User = Depends(reports_perm)):
+           db: Session = Depends(get_db), outlet: Outlet = Depends(report_outlet)):
     """Shifts opened in the period, with their cash count."""
     *_, start, end = _period(date_from, date_to)
-    found = db.scalars(select(Shift).where(Shift.opened_at >= start, Shift.opened_at < end).order_by(Shift.id.desc()))
+    query = select(Shift).where(Shift.opened_at >= start, Shift.opened_at < end)
+    found = db.scalars((at_outlet(query, outlet.location_id) if outlet.one else query).order_by(Shift.id.desc()))
     return [shift_report(db, s) for s in found]
 
 
 @router.get("/stock", response_model=StockReport)
 def stock(date_from: date | None = None, date_to: date | None = None,
-          db: Session = Depends(get_db), _: User = Depends(reports_perm)):
-    """Stock on hand now in every place (at cost), and what came in and was lost in the period."""
+          db: Session = Depends(get_db), outlet: Outlet = Depends(report_outlet)):
+    """Stock on hand now in every place (at cost), and what came in and was lost in the period. For one outlet:
+    its own stock only."""
     *_, start, end = _period(date_from, date_to)
     counted = (Product.is_active.is_(True), Product.track_stock.is_(True))
-    qty, value = db.execute(select(func.coalesce(func.sum(Product.stock_qty), 0), func.coalesce(func.sum(Product.stock_qty * Product.cost), 0))
-                            .where(*counted, Product.stock_qty > 0)).one()
-    places = [StockPlaceRow(name="Main shop", kind="main", qty=qty, value=value)]
-    for loc in db.scalars(select(Location).where(Location.is_active.is_(True)).order_by(Location.name)):
+    places = []
+    if not outlet.one or outlet.location_id is None:
+        qty, value = db.execute(select(func.coalesce(func.sum(Product.stock_qty), 0), func.coalesce(func.sum(Product.stock_qty * Product.cost), 0))
+                                .where(*counted, Product.stock_qty > 0)).one()
+        places.append(StockPlaceRow(name="Main shop", kind="main", qty=qty, value=value))
+    elsewhere = select(Location).where(Location.is_active.is_(True)).order_by(Location.name)
+    if outlet.one:
+        elsewhere = elsewhere.where(Location.id == outlet.location_id)  # nothing for the main shop
+    for loc in db.scalars(elsewhere):
         qty, value = db.execute(
             select(func.coalesce(func.sum(LocationStock.qty), 0), func.coalesce(func.sum(LocationStock.qty * Product.cost), 0))
             .join(Product, Product.id == LocationStock.product_id)
@@ -158,14 +174,15 @@ def stock(date_from: date | None = None, date_to: date | None = None,
         select(func.coalesce(func.sum(StockTransferItem.qty), 0), func.coalesce(func.sum(StockTransferItem.qty * StockTransferItem.unit_cost), 0))
         .join(StockTransfer, StockTransfer.id == StockTransferItem.transfer_id).where(StockTransfer.status == "in_transit")
     ).one()
-    if qty:
+    if qty and not outlet.one:
         places.append(StockPlaceRow(name="On the road", kind="transit", qty=qty, value=value))
 
     received: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     losses: dict[str, list[int]] = defaultdict(lambda: [0, 0])
-    moves = db.execute(select(StockMovement.kind, StockMovement.change, StockMovement.unit_cost, StockMovement.note, Supplier.name)
-                       .outerjoin(Supplier, Supplier.id == StockMovement.supplier_id)
-                       .where(StockMovement.kind.in_(("stock_in", "write_off")), StockMovement.created_at >= start, StockMovement.created_at < end))
+    moves = db.execute(_filtered(select(StockMovement.kind, StockMovement.change, StockMovement.unit_cost, StockMovement.note, Supplier.name)
+                                 .outerjoin(Supplier, Supplier.id == StockMovement.supplier_id)
+                                 .where(StockMovement.kind.in_(("stock_in", "write_off")), StockMovement.created_at >= start,
+                                        StockMovement.created_at < end), outlet.where(StockMovement.location_id)))
     for kind, change, unit_cost, note, supplier in moves:
         row = received[supplier or "No supplier"] if kind == "stock_in" else losses[(note or "Other").split(":")[0]]
         row[0] += abs(change)
@@ -179,10 +196,10 @@ def stock(date_from: date | None = None, date_to: date | None = None,
 
 @router.get("/expenses", response_model=ExpenseReport)
 def expenses(date_from: date | None = None, date_to: date | None = None,
-             db: Session = Depends(get_db), _: User = Depends(reports_perm)):
-    """Expenses dated in the period, by category and one by one."""
+             db: Session = Depends(get_db), outlet: Outlet = Depends(report_outlet)):
+    """Expenses dated in the period, by category and one by one (the whole business's: none in an outlet's report)."""
     date_from, date_to, *_ = _period(date_from, date_to)
-    items = expenses_between(db, date_from, date_to)
+    items = [] if outlet.one else expenses_between(db, date_from, date_to)
     by_category: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     for e in items:
         by_category[e.category][0] += 1
@@ -193,10 +210,10 @@ def expenses(date_from: date | None = None, date_to: date | None = None,
 
 @router.get("/customers", response_model=list[CustomerReportRow])
 def customers(date_from: date | None = None, date_to: date | None = None,
-              db: Session = Depends(get_db), _: User = Depends(reports_perm)):
+              db: Session = Depends(get_db), outlet: Outlet = Depends(report_outlet)):
     """Customers who bought in the period, best first. Walk-in sales are left out."""
     *_, start, end = _period(date_from, date_to)
-    sales, refunds = period_sales(db, start, end)
+    sales, refunds = period_sales(db, start, end, outlet)
     rows: dict[int, dict] = {}
     for s in sales:
         if s.customer is None:

@@ -3,7 +3,7 @@ import { KeyRound, Lock, Pencil, Power, Search, ShieldCheck, UserPlus } from 'lu
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { api } from '@/api/client'
-import type { Role, User } from '@/api/types'
+import type { Location, Role, User } from '@/api/types'
 import AppModal from '@/components/AppModal.vue'
 import { useAuth } from '@/stores/auth'
 import { useUi } from '@/stores/ui'
@@ -13,7 +13,9 @@ const auth = useAuth()
 const ui = useUi()
 const users = ref<User[]>([])
 const creating = ref(false)
-const form = reactive({ username: '', full_name: '', password: '', pin: '', role: 'cashier' as Role })
+const form = reactive({ username: '', full_name: '', password: '', pin: '', role: 'cashier' as Role, location_id: '' as number | '' })
+/** Branches that sell; staff with one work only at its registers ('' = any outlet) */
+const branches = ref<Location[]>([])
 const roleClass = { admin: 'bg-violet-50 text-violet-700', manager: 'bg-primary-soft text-primary', cashier: 'bg-page text-muted' }
 const query = ref('')
 const show = ref<'active' | 'inactive' | 'all'>('active')
@@ -46,6 +48,18 @@ async function load() {
   }
 }
 
+async function loadBranches() {
+  try {
+    branches.value = (await api.get<Location[]>('/locations')).filter((l) => l.kind === 'branch' && l.is_active)
+  } catch {
+    branches.value = [] // no stock permission: nobody is tied to a branch from here
+  }
+}
+
+function setBranch(user: User, to: string) {
+  update(user, { location_id: to === '' ? null : Number(to) }, 'Saved')
+}
+
 async function update(user: User, changes: Record<string, unknown>, done: string) {
   try {
     await api.patch(`/users/${user.id}`, changes)
@@ -58,9 +72,9 @@ async function update(user: User, changes: Record<string, unknown>, done: string
 
 async function create() {
   try {
-    await api.post('/users', { ...form, pin: form.pin || null })
+    await api.post('/users', { ...form, pin: form.pin || null, location_id: form.location_id === '' ? null : form.location_id })
     creating.value = false
-    Object.assign(form, { username: '', full_name: '', password: '', pin: '', role: 'cashier' })
+    Object.assign(form, { username: '', full_name: '', password: '', pin: '', role: 'cashier', location_id: '' })
     ui.toast('User added', 'success')
     load()
   } catch (e) {
@@ -90,7 +104,10 @@ async function toggleActive(user: User) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadBranches()
+})
 </script>
 
 <template>
@@ -120,7 +137,7 @@ onMounted(load)
     <div class="card overflow-x-auto">
       <table class="table min-w-[640px]">
         <thead>
-          <tr><th>{{ t('User') }}</th><th>{{ t('Role') }}</th><th>{{ t('PIN') }}</th><th>{{ t('Status') }}</th><th class="text-right">{{ t('Actions') }}</th></tr>
+          <tr><th>{{ t('User') }}</th><th>{{ t('Role') }}</th><th v-if="branches.length">{{ t('Works at') }}</th><th>{{ t('PIN') }}</th><th>{{ t('Status') }}</th><th class="text-right">{{ t('Actions') }}</th></tr>
         </thead>
         <tbody>
           <tr v-for="u in visible" :key="u.id" :class="!u.is_active && 'opacity-60'">
@@ -140,6 +157,18 @@ onMounted(load)
                 <option value="admin">{{ t('admin') }}</option>
               </select>
             </td>
+            <td v-if="branches.length">
+              <select
+                :value="u.location_id ?? ''"
+                class="rounded-lg border border-line bg-white px-2 py-1 text-xs font-semibold"
+                :disabled="!canManage(u)"
+                @change="setBranch(u, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">{{ t('Any outlet') }}</option>
+                <option v-for="b in branches" :key="b.id" :value="b.id">{{ b.name }}</option>
+                <option v-if="u.location_id && !branches.some((b) => b.id === u.location_id)" :value="u.location_id">{{ u.location_name }}</option>
+              </select>
+            </td>
             <td>{{ u.has_pin ? t('Yes') : '—' }}</td>
             <td><span :class="['pill', u.is_active ? 'bg-ok-soft text-ok' : 'bg-rose-50 text-price']">{{ u.is_active ? t('Active') : t('Inactive') }}</span></td>
             <td class="text-right whitespace-nowrap">
@@ -150,7 +179,7 @@ onMounted(load)
             </td>
           </tr>
           <tr v-if="!visible.length">
-            <td colspan="5" class="py-8 text-center text-muted">{{ t('Nobody found') }}</td>
+            <td :colspan="branches.length ? 6 : 5" class="py-8 text-center text-muted">{{ t('Nobody found') }}</td>
           </tr>
         </tbody>
       </table>
@@ -162,6 +191,14 @@ onMounted(load)
         <div><label class="label">{{ t('Full name') }}</label><input v-model="form.full_name" class="input" /></div>
         <div><label class="label">{{ t('Password (at least 6 characters)') }}</label><input v-model="form.password" class="input" type="password" autocomplete="new-password" /></div>
         <div><label class="label">{{ t('Quick PIN, 4-6 digits (optional)') }}</label><input v-model="form.pin" class="input" type="password" inputmode="numeric" /></div>
+        <div v-if="branches.length">
+          <label class="label">{{ t('Works at') }}</label>
+          <select v-model="form.location_id" class="input">
+            <option value="">{{ t('Any outlet') }}</option>
+            <option v-for="b in branches" :key="b.id" :value="b.id">{{ b.name }}</option>
+          </select>
+          <p class="mt-1 text-xs text-muted">{{ t('Staff of a branch open shifts only on its registers.') }}</p>
+        </div>
         <div v-if="auth.isAdmin">
           <label class="label">{{ t('Role') }}</label>
           <select v-model="form.role" class="input">

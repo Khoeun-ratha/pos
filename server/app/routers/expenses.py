@@ -11,6 +11,7 @@ from ..deps import audit, require_perm
 from ..models import CashMovement, Expense, Shift, User
 from ..schemas import ExpenseIn, ExpenseOut
 from .sales import open_shift_of
+from .shifts import take_cash
 
 router = APIRouter(prefix="/api/expenses", tags=["expenses"])
 expenses_perm = require_perm("expenses")
@@ -25,7 +26,7 @@ def _describe(e: Expense) -> str:
 
 
 def _reason(body: ExpenseIn) -> str:
-    return f"Expense: {body.category}" + (f", {body.note}" if body.note else "")
+    return (f"Expense: {body.category.strip()}" + (f", {body.note.strip()}" if body.note else ""))[:200]
 
 
 def _get(db: Session, expense_id: int) -> Expense:
@@ -75,6 +76,7 @@ def create_expense(body: ExpenseIn, db: Session = Depends(get_db), user: User = 
         shift = open_shift_of(db, user)
         if shift is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Open a shift first to pay from the cash drawer")
+        take_cash(db, shift, body.amount)
         expense.cash_movement = CashMovement(shift_id=shift.id, user_id=user.id, amount=-body.amount, reason=_reason(body))
     db.add(expense)
     audit(db, user, "expense", _describe(expense) + (" from the cash drawer" if body.from_drawer else ""))
@@ -95,6 +97,8 @@ def update_expense(expense_id: int, body: ExpenseIn, db: Session = Depends(get_d
     expense.amount = body.amount
     expense.note = (body.note or "").strip() or None
     if movement is not None:
+        if body.amount > -movement.amount:  # the extra comes out of the drawer too
+            take_cash(db, db.get(Shift, movement.shift_id), body.amount + movement.amount)
         movement.amount = -body.amount
         movement.reason = _reason(body)
     audit(db, user, "expense_update", f"{before} -> {_describe(expense)}")

@@ -20,6 +20,7 @@ from .models import (
     Product,
     Refund,
     RefundItem,
+    Register,
     Sale,
     SaleItem,
     Shift,
@@ -113,6 +114,12 @@ def seed(db: Session, demo_history: bool = True, demo_images: bool = True) -> No
                                role=role, full_name=full_name)
         db.add(users[username])
 
+    # tills: the database update makes Counter 1; the demo has a second counter, one per demo cashier
+    registers = list(db.scalars(select(Register).order_by(Register.id))) or [Register(name="Counter 1")]
+    if demo_history and len(registers) < 2:
+        registers.append(Register(name="Counter 2"))
+    db.add_all(registers)
+
     products: list[Product] = []
     for order, (category_name, items) in enumerate(DEMO_PRODUCTS.items()):
         category = Category(name=category_name, sort_order=order)
@@ -130,7 +137,7 @@ def seed(db: Session, demo_history: bool = True, demo_images: bool = True) -> No
     if demo_history and demo_images:
         add_demo_images(db, products)  # pictures in server/uploads
     if demo_history:
-        _history(db, users, products)
+        _history(db, users, products, registers)
     else:
         for product in products:
             if product.stock_qty:
@@ -139,7 +146,7 @@ def seed(db: Session, demo_history: bool = True, demo_images: bool = True) -> No
     db.commit()
 
 
-def _history(db: Session, users: dict[str, User], products: list[Product]) -> None:
+def _history(db: Session, users: dict[str, User], products: list[Product], registers: list[Register]) -> None:
     """30 days of believable trading. Stock ends exactly at the levels listed in DEMO_PRODUCTS."""
     rng = random.Random(2026)
     rate = int(store_settings.DEFAULTS["exchange_rate"])
@@ -160,11 +167,11 @@ def _history(db: Session, users: dict[str, User], products: list[Product]) -> No
 
     for days_ago in range(HISTORY_DAYS - 1, -1, -1):
         day = today - timedelta(days=days_ago)
-        cashier = users["cashier"] if days_ago % 2 == 0 else users["cashier2"]
+        cashier, register = (users["cashier"], registers[0]) if days_ago % 2 == 0 else (users["cashier2"], registers[1])
         opened = datetime.combine(day, time(7, 0))
         if opened > current:
             continue
-        shift = Shift(user_id=cashier.id, opened_at=opened, opening_cash=2000)
+        shift = Shift(user_id=cashier.id, register_id=register.id, opened_at=opened, opening_cash=2000)
         db.add(shift)
         db.flush()
         shifts.append(shift)

@@ -5,7 +5,7 @@ import type {
   CashierReportRow, CustomerReportRow, DiscountReportRow, LogReportRow, PaymentReportRow, ProductReportRow,
   ExpenseReport, RefundReportRow, ReportSummary, ShiftReport, StockReport,
 } from '@/api/types'
-import { rangeQuery } from './reportRange'
+import { reportQuery } from './reportRange'
 
 export type Format = 'text' | 'usd' | 'num' | 'khr' | 'datetime' | 'pct' | 'signed'
 export type Row = Record<string, string | number | null>
@@ -35,7 +35,7 @@ export interface ReportDef {
   load: () => Promise<Section[]>
 }
 
-const get = <T>(path: string) => api.get<T>(path, rangeQuery())
+const get = <T>(path: string) => api.get<T>(path, reportQuery())
 /** Profit as a share of the sales without VAT (sales without VAT = cost + profit). */
 const margin = (profit: number, cost: number) => (profit + cost > 0 ? Math.round((profit / (profit + cost)) * 1000) / 10 : null)
 
@@ -195,9 +195,30 @@ export const REPORTS: Record<string, ReportDef> = {
     description: 'Shifts opened in the period: cash expected in the drawer, cash counted, and over / short.',
     async load() {
       const rows = await get<ShiftReport[]>('/reports/shifts')
+      // one line per till: what went through its drawer, and how its counts came out
+      const byRegister = new Map<string, Row>()
+      for (const s of rows) {
+        const name = s.register_name ?? '—'
+        const r = byRegister.get(name) ?? { register: name, shifts: 0, sales_count: 0, cash_sales: 0, card_sales: 0, khqr_sales: 0, variance: 0 }
+        r.shifts = Number(r.shifts) + 1
+        for (const key of ['sales_count', 'cash_sales', 'card_sales', 'khqr_sales'] as const) r[key] = Number(r[key]) + s[key]
+        r.variance = Number(r.variance) + (s.variance ?? 0)
+        byRegister.set(name, r)
+      }
       return [{
+        title: 'By register',
         columns: [
-          { key: 'cashier_name', label: 'Cashier' }, { key: 'opened_at', label: 'Opened', format: 'datetime' },
+          { key: 'register', label: 'Register' }, { key: 'shifts', label: 'Shifts', format: 'num', total: true },
+          { key: 'sales_count', label: 'Receipts', format: 'num', total: true }, { key: 'cash_sales', label: 'Cash sales', format: 'usd', total: true },
+          { key: 'card_sales', label: 'Card', format: 'usd', total: true }, { key: 'khqr_sales', label: 'KHQR', format: 'usd', total: true },
+          { key: 'variance', label: 'Over / short', format: 'signed', total: true },
+        ],
+        rows: [...byRegister.values()],
+      }, {
+        title: 'Every shift',
+        columns: [
+          { key: 'cashier_name', label: 'Cashier' }, { key: 'register_name', label: 'Register' },
+          { key: 'opened_at', label: 'Opened', format: 'datetime' },
           { key: 'closed_at', label: 'Closed', format: 'datetime' }, { key: 'sales_count', label: 'Receipts', format: 'num', total: true },
           { key: 'opening_cash', label: 'Opening cash', format: 'usd' }, { key: 'cash_sales', label: 'Cash sales', format: 'usd', total: true },
           { key: 'card_sales', label: 'Card', format: 'usd', total: true }, { key: 'khqr_sales', label: 'KHQR', format: 'usd', total: true },

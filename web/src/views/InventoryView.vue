@@ -23,7 +23,11 @@ const auth = useAuth()
 const ui = useUi()
 const route = useRoute()
 
+/** Staff of a branch work on its stock only (the service checks too). */
+const myBranch = auth.user?.location_id ?? null
+
 function storedPlace(): number | '' {
+  if (myBranch !== null) return myBranch
   try {
     const raw = localStorage.getItem('pos.inventory.place')
     return raw ? Number(raw) : ''
@@ -198,7 +202,10 @@ onMounted(() => {
 <template>
   <div class="mx-auto max-w-7xl space-y-4 p-4 lg:p-6">
     <!-- which place: main shop or a branch / warehouse -->
-    <div v-if="page !== 'movements' && activeLocations.length" class="flex flex-wrap items-center gap-2">
+    <div v-if="myBranch !== null" class="flex items-center gap-2 text-sm font-semibold">
+      <MapPin :size="18" class="text-muted" /> {{ auth.user?.location_name }}
+    </div>
+    <div v-else-if="page !== 'movements' && activeLocations.length" class="flex flex-wrap items-center gap-2">
       <MapPin :size="18" class="text-muted" />
       <button :class="['pill px-3 py-1.5', place === '' ? 'bg-primary text-white' : 'bg-white text-ink ring-1 ring-line hover:bg-page']" @click="place = ''">
         {{ auth.settings.store_name }} · {{ t('main shop') }}
@@ -254,7 +261,7 @@ onMounted(() => {
         <input v-model="query" class="input pl-10" :placeholder="page === 'movements' ? t('Search product') : t('Search name, SKU or barcode')" />
       </div>
       <template v-if="page === 'movements'">
-        <select v-if="locations.length" v-model="movementPlace" class="input w-auto">
+        <select v-if="locations.length && myBranch === null" v-model="movementPlace" class="input w-auto">
           <option value="">{{ t('Every place') }}</option>
           <option value="main">{{ auth.settings.store_name }}</option>
           <option v-for="l in locations" :key="l.id" :value="String(l.id)">{{ l.name }}</option>

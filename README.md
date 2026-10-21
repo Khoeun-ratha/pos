@@ -38,7 +38,7 @@ First time only:
 cd D:\owner\POS\web
 npm install
 ```
-
+  
 Run:
 
 ```powershell
@@ -255,8 +255,14 @@ flutter run
 Server address on the login screen: Android emulator `http://10.0.2.2:8000`; a real phone `http://<PC IP>:8000`.
 Release build: `flutter build apk --release` (iOS needs a Mac).
 
-App icons (Android, iOS, and the web app's home-screen icon) are drawn from the RATHA MART mark by
-`node mobile/tool/app_icons.mjs` (needs `npm install` in `web/` first); run it again after changing the drawing.
+The RATHA MART logo comes from one picture, `brand/logo-source.jpg`. `mobile/tool/brand_assets.py` cuts it out of
+its background and makes every logo file: the web app's logo, mark, favicon, black receipt logo and home-screen
+icons, the phone app's logo (`mobile/assets/brand`), and the Android and iOS app icons. For a new logo (cart on
+top, then the name, then the tagline, on plain light paper):
+
+```powershell
+server\.venv\Scripts\python mobile\tool\brand_assets.py C:\path\to\new-logo.jpg
+```
 
 ## Development
 

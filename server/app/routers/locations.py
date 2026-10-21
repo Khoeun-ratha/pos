@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from .. import store_settings
 from ..database import get_db
 from ..deps import audit, require_perm
-from ..models import Location, LocationStock, Product, StockTransfer, StockTransferItem, User, now
+from ..models import Location, LocationStock, Product, Register, StockTransfer, StockTransferItem, User, now
 from ..schemas import LocationIn, LocationOut, LocationStockOut, TransferIn, TransferOut
 from .inventory import get_location, move_stock, not_below_zero
 
@@ -80,6 +80,14 @@ def update_location(location_id: int, body: LocationIn, db: Session = Depends(ge
         ))
         if on_road:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Receive or cancel the transfers of this location first")
+    if (not body.is_active or body.kind != "branch") and location.kind == "branch":
+        # a branch that stops selling must not leave registers or staff pointing at it
+        registers = db.scalar(select(func.count()).select_from(Register).where(
+            Register.location_id == location.id, Register.is_active.is_(True)))
+        staff = db.scalar(select(func.count()).select_from(User).where(User.location_id == location.id, User.is_active.is_(True)))
+        if registers or staff:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                                f"{location.name} still has {registers} register(s) and {staff} staff: move them first")
     location.name, location.kind, location.address, location.is_active = name, body.kind, body.address, body.is_active
     audit(db, user, "location_update", location.name)
     db.commit()
@@ -102,30 +110,39 @@ def list_transfers(
     status_: str | None = Query(None, alias="status"),
     limit: int = Query(100, le=1000),
     db: Session = Depends(get_db),
-    _: User = Depends(inventory),
+    user: User = Depends(inventory),
 ):
     query = select(StockTransfer)
+    if user.location_id is not None:  # staff of a branch: what comes in or goes out there
+        query = query.where((StockTransfer.from_location_id == user.location_id) | (StockTransfer.to_location_id == user.location_id))
     if status_:
         query = query.where(StockTransfer.status == status_)
     return [transfer_out(db, t) for t in db.scalars(query.order_by(StockTransfer.id.desc()).limit(limit))]
 
 
-def _get_transfer(db: Session, transfer_id: int) -> StockTransfer:
+def _get_transfer(db: Session, transfer_id: int, user: User) -> StockTransfer:
     transfer = db.get(StockTransfer, transfer_id)
-    if transfer is None:
+    if transfer is None or (user.location_id is not None and user.location_id not in (transfer.from_location_id, transfer.to_location_id)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Transfer not found")
     return transfer
 
 
+def _branch_may(user: User, location_id: int | None, what: str) -> None:
+    """Staff of a branch move only their branch's stock: send from it, receive into it."""
+    if user.location_id is not None and location_id != user.location_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, f"You work at {user.location_name}: {what}")
+
+
 @router.get("/transfers/{transfer_id}", response_model=TransferOut)
-def get_transfer(transfer_id: int, db: Session = Depends(get_db), _: User = Depends(inventory)):
-    return transfer_out(db, _get_transfer(db, transfer_id))
+def get_transfer(transfer_id: int, db: Session = Depends(get_db), user: User = Depends(inventory)):
+    return transfer_out(db, _get_transfer(db, transfer_id, user))
 
 
 @router.post("/transfers", response_model=TransferOut, status_code=201)
 def send_transfer(body: TransferIn, db: Session = Depends(get_db), user: User = Depends(inventory)):
     if body.from_location_id == body.to_location_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose two different places")
+    _branch_may(user, body.from_location_id, "send from its stock (another place sends to you)")
     source = get_location(db, body.from_location_id)
     destination = get_location(db, body.to_location_id)
 
@@ -174,9 +191,13 @@ def send_transfer(body: TransferIn, db: Session = Depends(get_db), user: User = 
 
 
 def _close(db: Session, transfer_id: int, user: User, received: bool) -> TransferOut:
-    transfer = _get_transfer(db, transfer_id)
+    transfer = _get_transfer(db, transfer_id, user)
     if transfer.status != "in_transit":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Transfer {transfer.transfer_no} is already {transfer.status.replace('_', ' ')}")
+    if received:
+        _branch_may(user, transfer.to_location_id, "only goods sent to it can be received")
+    else:
+        _branch_may(user, transfer.from_location_id, "only the sender cancels a transfer")
     out = transfer_out(db, transfer)
     # receiving puts the goods on the destination; cancelling puts them back where they came from
     target = transfer.to_location if received else transfer.from_location

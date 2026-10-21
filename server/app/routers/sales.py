@@ -10,11 +10,11 @@ from sqlalchemy.orm import Session
 from .. import store_settings
 from ..database import get_db
 from ..deps import approve, audit, get_current_user, sees_all_sales
-from ..models import Customer, Product, Refund, RefundItem, Sale, SaleItem, Payment, Shift, User, now
+from ..models import Customer, Location, Product, Refund, RefundItem, Sale, SaleItem, Payment, Shift, User, now
 from ..pricing import CartTotals, LineInput, calculate, div_round, khr_to_usd_cents, share_of, usd_cents_to_khr
 from ..receipt import render
 from ..schemas import CartIn, QuoteLineOut, QuoteOut, RefundIn, RefundOut, SaleCreate, SaleOut, SaleSummaryOut, VoidIn
-from .inventory import move_stock
+from .inventory import move_stock, qty_at
 
 router = APIRouter(prefix="/api/sales", tags=["sales"])
 
@@ -35,8 +35,21 @@ def sale_cash(sale: Sale) -> int:
     return min(max(cash, 0), sale.total)
 
 
-def open_shift_of(db: Session, user: User) -> Shift | None:
-    return db.scalar(select(Shift).where(Shift.user_id == user.id, Shift.closed_at.is_(None)))
+def open_shift_of(db: Session, user: User, lock: bool = False) -> Shift | None:
+    query = select(Shift).where(Shift.user_id == user.id, Shift.closed_at.is_(None))
+    return db.scalar(query.with_for_update() if lock else query)
+
+
+def outlet_of(db: Session, user: User) -> Location | None:
+    """Where `user` is now: the outlet of the register their shift is open on, else their home branch (None: the
+    main shop)."""
+    shift = open_shift_of(db, user)
+    return shift.register.location if shift and shift.register else user.location
+
+
+def same_outlet(location_id: int | None, user: User) -> bool:
+    """Staff with a home branch see only that branch; everyone else sees every outlet."""
+    return user.location_id is None or location_id == user.location_id
 
 
 def shift_at(db: Session, user: User, when: datetime) -> Shift | None:
@@ -112,10 +125,17 @@ def create_sale(body: SaleCreate, response: Response, db: Session = Depends(get_
 
     # A standard till: no selling before the cash drawer is counted. An offline sale already happened,
     # so it goes to the shift that was open at that moment (or none) instead of being refused.
-    created_at = body.created_at.replace(tzinfo=None, microsecond=0) if body.created_at else now()
+    # the server's clock dates a sale; only one that waited offline keeps the time the phone saw
+    created_at = body.created_at.replace(tzinfo=None, microsecond=0) if body.offline and body.created_at else now()
+    phone_clock = None
+    if created_at > now() + timedelta(minutes=10):  # a phone whose clock runs ahead: the sale happened by now
+        phone_clock, created_at = created_at, now()
     shift = shift_at(db, user, created_at) if body.offline else open_shift_of(db, user)
     if shift is None and not body.offline:
         raise bad_request("Open a shift before selling: count the cash drawer first")
+
+    # the outlet selling: the register's (an offline sale with no shift: the cashier's home branch)
+    location = shift.register.location if shift and shift.register else user.location
 
     approver = approve(db, user, body.manager_pin) if _has_discount(body) else None
 
@@ -150,8 +170,10 @@ def create_sale(body: SaleCreate, response: Response, db: Session = Depends(get_
         for product, item in zip(products, body.items):
             needed[product.id] += item.qty
         for product in {p.id: p for p in products}.values():
-            if product.track_stock and product.stock_qty < needed[product.id]:
-                raise bad_request(f"Not enough stock for {product.name} (have {product.stock_qty})")
+            have = qty_at(db, product, location) if product.track_stock else 0
+            if product.track_stock and have < needed[product.id]:
+                where = f" at {location.name}" if location else ""
+                raise bad_request(f"Not enough stock for {product.name}{where} (have {have})")
 
     prefix = created_at.strftime("%Y%m%d")
     count_today = db.scalar(select(func.count()).select_from(Sale).where(Sale.receipt_no.like(f"{prefix}-%")))
@@ -160,6 +182,7 @@ def create_sale(body: SaleCreate, response: Response, db: Session = Depends(get_
         client_uuid=body.client_uuid,
         user_id=user.id,
         shift_id=shift.id if shift else None,
+        location_id=location.id if location else None,
         customer_id=customer.id if customer else None,
         subtotal=totals.subtotal,
         discount_total=totals.discount_total,
@@ -194,7 +217,7 @@ def create_sale(body: SaleCreate, response: Response, db: Session = Depends(get_
 
     for product, item in zip(products, body.items):
         if product.track_stock:
-            move_stock(db, product, -item.qty, "sale", user, reference=sale.receipt_no)
+            move_stock(db, product, -item.qty, "sale", user, reference=sale.receipt_no, location=location)
 
     if customer:
         customer.points += totals.total // 100 * store_settings.get_int(cfg, "loyalty_points_per_usd")
@@ -205,6 +228,8 @@ def create_sale(body: SaleCreate, response: Response, db: Session = Depends(get_
         changed = [f"{p.name} ${price / 100:.2f} (now ${p.price / 100:.2f})" for p, price in zip(products, prices) if price != p.price]
         if changed:
             audit(db, user, "offline_sale", f"{sale.receipt_no} synced with the phone's prices: " + ", ".join(changed))
+    if phone_clock:
+        audit(db, user, "offline_sale", f"{sale.receipt_no} dated {phone_clock:%Y-%m-%d %H:%M} by the phone's clock, saved as now")
     db.commit()
     db.refresh(sale)
     return sale_out(sale)
@@ -235,6 +260,8 @@ def list_sales(
     query = select(Sale)
     if not sees_all_sales(db, user):
         query = query.where(Sale.user_id == user.id)
+    elif user.location_id is not None:  # a branch manager: their branch's sales
+        query = query.where(Sale.location_id == user.location_id)
     if date_from:
         query = query.where(Sale.created_at >= datetime.combine(date_from, time.min))
     if date_to:
@@ -246,7 +273,7 @@ def list_sales(
 
 def _visible_sale(db: Session, sale_id: int, user: User) -> Sale:
     sale = db.get(Sale, sale_id)
-    if sale is None or (sale.user_id != user.id and not sees_all_sales(db, user)):
+    if sale is None or (sale.user_id != user.id and not (sees_all_sales(db, user) and same_outlet(sale.location_id, user))):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Sale not found")
     return sale
 
@@ -288,6 +315,9 @@ def refund(sale_id: int, body: RefundIn, db: Session = Depends(get_db), user: Us
 
     record = Refund(sale_id=sale.id, user_id=user.id, approved_by_id=approver.id, reason=body.reason, amount=0)
     shift = open_shift_of(db, user)
+    # the goods come back where they are handed in: the outlet of this till (a return at another branch stays
+    # there); with no till, the outlet that sold them
+    returned_to = shift.register.location if shift and shift.register else db.get(Location, sale.location_id) if sale.location_id else None
     record.shift_id = shift.id if shift else None
     db.add(record)
     db.flush()
@@ -306,13 +336,17 @@ def refund(sale_id: int, body: RefundIn, db: Session = Depends(get_db), user: Us
         db.add(RefundItem(refund_id=record.id, sale_item_id=item.id, qty=qty, amount=amount))
         product = db.get(Product, item.product_id) if item.product_id else None
         if product and product.track_stock:
-            move_stock(db, product, qty, "refund", user, reference=sale.receipt_no, note=body.reason)
+            move_stock(db, product, qty, "refund", user, reference=sale.receipt_no, note=body.reason, location=returned_to)
 
-    record.amount = total
     # money goes back the way it was paid: only the cash part leaves the drawer
-    record.cash_amount = share_of(sale.refunded_total, total, sale_cash(sale), sale.total)
-    if record.cash_amount and shift is None:
-        raise bad_request(f"Open a shift first: ${record.cash_amount / 100:.2f} cash comes out of the drawer")
+    cash = share_of(sale.refunded_total, total, sale_cash(sale), sale.total)
+    if cash and shift is None:
+        raise bad_request(f"Open a shift first: ${cash / 100:.2f} cash comes out of the drawer")
+    if cash:
+        from .shifts import take_cash  # shifts imports this module
+        take_cash(db, shift, cash)
+    record.amount = total
+    record.cash_amount = cash
 
     if sale.customer:  # take back the loyalty points earned on the refunded part
         per_usd = store_settings.get_int(store_settings.load(db), "loyalty_points_per_usd")

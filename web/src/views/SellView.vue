@@ -50,7 +50,9 @@ const visible = computed(() => {
 
 async function load() {
   try {
-    ;[categories.value, products.value] = await Promise.all([api.get<Category[]>('/categories'), api.get<Product[]>('/products', { limit: 5000 })])
+    // a branch till shows (and sells) that branch's stock
+    const at = { limit: 5000, location_id: shift.current?.location_id ?? undefined }
+    ;[categories.value, products.value] = await Promise.all([api.get<Category[]>('/categories'), api.get<Product[]>('/products', at)])
   } catch (e) {
     ui.error(e)
   } finally {
@@ -207,6 +209,9 @@ function resume(order: ParkedOrder) {
 
 // held orders from the other tills (and ones sent to this cashier) show up without a reload
 let heldTimer: ReturnType<typeof setInterval> | undefined
+
+// the shift (and so the outlet) is known after the first load, or opened on another till since
+watch(() => shift.current?.location_id ?? null, load)
 
 onMounted(() => {
   load()

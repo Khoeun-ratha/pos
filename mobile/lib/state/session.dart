@@ -6,8 +6,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/api_client.dart';
 import '../models.dart';
 
-/// The Android emulator reaches the PC running the server at 10.0.2.2.
-const defaultServerUrl = 'http://10.0.2.2:8000';
+/// The server address the login screen starts with, until one is saved. A real phone needs the PC's Wi-Fi address:
+/// `flutter run --dart-define=POS_SERVER=http://192.168.1.152:8000` (start_mobile.bat finds it by itself).
+/// Without it: the Android emulator, which reaches the PC at 10.0.2.2.
+const defaultServerUrl = String.fromEnvironment('POS_SERVER', defaultValue: 'http://10.0.2.2:8000');
 
 final prefsProvider = Provider<SharedPreferences>((ref) => throw UnimplementedError('Overridden in main()'));
 

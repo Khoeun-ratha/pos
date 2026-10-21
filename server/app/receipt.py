@@ -42,14 +42,21 @@ def render(sale: Sale, store: dict[str, str], width: int = 42, reprint: bool = F
         out.append("*** REPRINT / COPY ***".center(width).rstrip())
 
     out += [line.center(width).rstrip() for line in _wrap(store["store_name"], width)]
-    if store.get("store_address"):
-        out += [line.center(width).rstrip() for line in _wrap(store["store_address"], width)]
+    # a branch prints its own name and address (the customer is there, not at the main shop)
+    address = store.get("store_address")
+    if sale.location is not None:
+        out += [line.center(width).rstrip() for line in _wrap(f"{sale.location.name} branch", width)]
+        address = sale.location.address
+    if address:
+        out += [line.center(width).rstrip() for line in _wrap(address, width)]
     if store.get("store_phone"):
         out.append(f"Tel: {store['store_phone']}".center(width).rstrip())
     out.append(rule)
     out.append(f"Receipt: {sale.receipt_no}")
     out.append(f"Date:    {sale.created_at:%Y-%m-%d %H:%M}")
     out.append(f"Cashier: {sale.cashier_name}")
+    if sale.register_name:
+        out.append(f"Register: {sale.register_name}")
     if sale.customer_name:
         out.append(f"Customer: {sale.customer_name}")
     out.append(rule)

@@ -4,7 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { api } from '@/api/client'
-import type { ParkedOrder, ShiftHandover, ShiftReport, Staff } from '@/api/types'
+import type { ParkedOrder, Register, ShiftHandover, ShiftReport, Staff } from '@/api/types'
 import AppModal from '@/components/AppModal.vue'
 import { dateTime, day, khr, khrToUsdCents, parseHundredths, parseWhole, time, usd } from '@/lib/money'
 import { printReceipt } from '@/lib/print'
@@ -20,6 +20,16 @@ const router = useRouter()
 
 const openingCash = ref('0')
 const openingKhr = ref('')
+/** The tills; a shift opens on a free one (picked for you when there is only one). */
+const registers = ref<Register[]>([])
+const registerId = ref<number | ''>('')
+/** Staff with a home branch open shifts only on its registers. */
+const usable = computed(() =>
+  registers.value.filter((r) => r.is_active && (auth.user?.location_id == null || r.location_id === auth.user.location_id)),
+)
+const tillName = (r: { register_name?: string | null; name?: string; location_name: string | null }) =>
+  [r.location_name, r.register_name ?? r.name].filter(Boolean).join(' · ')
+const free = computed(() => usable.value.filter((r) => !r.open_by))
 const history = ref<ShiftReport[]>([])
 /** Counting the drawer: to close my shift, to hand it to the next cashier, or (manager) to close someone's shift. */
 const closing = ref<{ mode: 'close' | 'handover' } | { mode: 'other'; shift: ShiftReport } | null>(null)
@@ -65,7 +75,10 @@ function rows(r: ShiftReport): [string, string, string?][] {
 }
 
 function reportText(r: ShiftReport) {
-  const lines = [auth.settings.store_name, 'SHIFT REPORT', r.cashier_name, `Opened ${dateTime(r.opened_at)}`]
+  const lines = [auth.settings.store_name, 'SHIFT REPORT', r.cashier_name]
+  if (r.location_name) lines.push(`Branch: ${r.location_name}`)
+  if (r.register_name) lines.push(`Register: ${r.register_name}`)
+  lines.push(`Opened ${dateTime(r.opened_at)}`)
   if (r.closed_at) lines.push(`Closed ${dateTime(r.closed_at)}`)
   lines.push('-'.repeat(42), ...rows(r).map(([label, value]) => label.padEnd(26) + value.padStart(16)))
   if (r.note) lines.push('', r.note)
@@ -77,10 +90,15 @@ async function loadHistory() {
   history.value = await api.get<ShiftReport[]>('/shifts', { limit: 30 })
 }
 
+async function loadRegisters() {
+  registers.value = await api.get<Register[]>('/registers')
+  if (!free.value.some((r) => r.id === registerId.value)) registerId.value = free.value[0]?.id ?? ''
+}
+
 async function run(action: () => Promise<unknown>) {
   try {
     await action()
-    await Promise.all([shift.refresh(), loadHistory()])
+    await Promise.all([shift.refresh(), loadHistory(), loadRegisters()])
   } catch (e) {
     ui.error(e)
   }
@@ -89,7 +107,8 @@ async function run(action: () => Promise<unknown>) {
 function open() {
   const opening = cents(openingCash.value, openingKhr.value)
   if (opening === null) return ui.toast('Enter the opening cash, e.g. 20.00', 'error')
-  run(() => api.post('/shifts/open', { opening_cash: opening }))
+  if (registerId.value === '') return ui.toast(t('Every register is in use: close a shift first, or add a register in Store settings'), 'error')
+  run(() => api.post('/shifts/open', { opening_cash: opening, register_id: registerId.value }))
 }
 
 async function cashMovement(cashIn: boolean) {
@@ -166,6 +185,15 @@ onMounted(() => run(async () => {}))
             <p class="text-sm text-muted">{{ t('Count the cash in the drawer to start.') }}</p>
           </div>
         </div>
+        <div v-if="usable.length > 1" class="mb-4">
+          <label class="label" for="register">{{ t('Register') }}</label>
+          <select id="register" v-model="registerId" class="input text-lg">
+            <option v-for="r in usable" :key="r.id" :value="r.id" :disabled="!!r.open_by">
+              {{ r.open_by ? `${tillName(r)} · ${t('in use by {name}', { name: r.open_by })}` : tillName(r) }}
+            </option>
+          </select>
+          <p v-if="!free.length" class="mt-1 text-sm text-price">{{ t('Every register is in use: close a shift first, or add a register in Store settings') }}</p>
+        </div>
         <div class="mb-4 grid grid-cols-2 gap-3">
           <div>
             <label class="label">{{ t('Opening cash (USD)') }}</label>
@@ -187,7 +215,10 @@ onMounted(() => run(async () => {}))
           <div class="flex size-11 items-center justify-center rounded-xl bg-ok-soft text-ok"><LockKeyholeOpen :size="22" /></div>
           <div>
             <h2 class="text-lg font-bold">{{ t('Shift open') }}</h2>
-            <p class="text-sm text-muted">{{ shift.current.cashier_name }} · {{ t('since {time}', { time: dateTime(shift.current.opened_at) }) }}</p>
+            <p class="text-sm text-muted">
+              <b v-if="shift.current.register_name" class="text-ink">{{ tillName(shift.current) }}</b>
+              {{ shift.current.register_name ? '·' : '' }} {{ shift.current.cashier_name }} · {{ t('since {time}', { time: dateTime(shift.current.opened_at) }) }}
+            </p>
           </div>
         </div>
         <dl class="space-y-1.5">
@@ -220,6 +251,7 @@ onMounted(() => run(async () => {}))
           <tr v-for="s in history" :key="s.id">
             <td>
               <p class="font-semibold whitespace-nowrap">{{ s.cashier_name }}</p>
+              <p v-if="s.register_name" class="text-xs whitespace-nowrap text-primary">{{ tillName(s) }}</p>
               <p v-if="s.handed_to_name" class="text-xs whitespace-nowrap text-muted">→ {{ s.handed_to_name }}</p>
             </td>
             <td class="whitespace-nowrap text-muted">

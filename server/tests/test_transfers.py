@@ -21,7 +21,8 @@ def test_send_and_receive_moves_stock(client, manager):
     received = client.post("/api/inventory/stock-in", headers=manager,
                            json={"product_id": coke["id"], "qty": 100, "location_id": store["id"]})
     assert received.status_code == 200, received.text
-    assert received.json()["stock_qty"] == coke["stock_qty"]  # the shop's own stock is untouched
+    assert received.json()["stock_qty"] == 100  # the reply shows the stock where it arrived
+    assert product_by_name(client, manager, "Coca-Cola 330ml")["stock_qty"] == coke["stock_qty"]  # the shop's is untouched
     assert stock_at(client, manager, store["id"], coke["id"]) == 100
 
     # warehouse -> main shop: leaves the warehouse when sent, arrives when received

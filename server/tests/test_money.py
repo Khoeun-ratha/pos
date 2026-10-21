@@ -103,9 +103,10 @@ def test_refund_of_an_earlier_sale_does_not_change_the_old_report(client, manage
     open_shift(client, manager)
     yesterday = date.today() - timedelta(days=1)
     rice = product_by_name(client, manager, "Jasmine Rice 5kg")
-    sold_at = datetime.combine(yesterday, datetime.min.time()).replace(hour=10).isoformat()
-    sale = checkout(client, manager, [{"product_id": rice["id"], "qty": 1}], [{"method": "cash", "amount": 715}],
-                    created_at=sold_at).json()
+    sale = checkout(client, manager, [{"product_id": rice["id"], "qty": 1}], [{"method": "cash", "amount": 715}]).json()
+    with SessionLocal() as db:  # the server dates a sale itself: move it to yesterday morning
+        db.get(Sale, sale["id"]).created_at = datetime.combine(yesterday, datetime.min.time()).replace(hour=10)
+        db.commit()
     before = client.get("/api/reports/summary", headers=manager, params={"date_from": yesterday.isoformat()}).json()
     refund_all(client, manager, sale["id"])
     after = client.get("/api/reports/summary", headers=manager, params={"date_from": yesterday.isoformat()}).json()

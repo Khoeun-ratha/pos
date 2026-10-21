@@ -7,6 +7,7 @@ from ..deps import audit, get_current_user, require_perm
 from ..models import ROLE_ADMIN, ROLE_CASHIER, User
 from ..schemas import StaffOut, UserCreate, UserOut, UserUpdate
 from ..security import hash_pin, hash_secret
+from .inventory import get_branch
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 # the admin manages everyone; a role given "staff" (managers by default) manages the cashiers only
@@ -39,6 +40,7 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), admin: User = D
         password_hash=hash_secret(body.password),
         pin_hash=hash_pin(body.pin) if body.pin else None,
         role=body.role,
+        location=get_branch(db, body.location_id),
     )
     db.add(user)
     audit(db, admin, "user_create", f"{body.username} ({body.role})")
@@ -69,6 +71,9 @@ def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db), a
         user.is_active = body.is_active
     changed = [name for name, value in (("name", body.full_name), ("password", body.password), ("PIN", body.pin),
                                         ("role", body.role), ("active", body.is_active)) if value is not None]
+    if "location_id" in body.model_fields_set and body.location_id != user.location_id:
+        user.location = get_branch(db, body.location_id)
+        changed.append(f"works at {user.location.name if user.location else 'any outlet'}")
     audit(db, admin, "user_update", f"{user.username}: {', '.join(changed)}")
     db.commit()
     return user

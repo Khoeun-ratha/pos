@@ -4,6 +4,7 @@ import { reactive, ref } from 'vue'
 
 import { api } from '@/api/client'
 import type { StoreSettings } from '@/api/types'
+import RegisterSettings from '@/components/RegisterSettings.vue'
 import { t } from '@/lib/i18n'
 import { khr, parseHundredths, parseWhole } from '@/lib/money'
 import { useAuth } from '@/stores/auth'
@@ -80,7 +81,8 @@ async function removeLogo() {
 </script>
 
 <template>
-  <form class="mx-auto max-w-3xl space-y-5 p-4 lg:p-6" @submit.prevent="save">
+  <div class="mx-auto max-w-3xl space-y-5 p-4 lg:p-6">
+  <form class="space-y-5" @submit.prevent="save">
     <p v-if="!auth.isAdmin" class="rounded-xl bg-warn-soft px-4 py-3 text-amber-900">{{ t('Only the admin can change these settings.') }}</p>
     <fieldset :disabled="!auth.isAdmin" class="space-y-5">
       <div class="card space-y-3 p-5">
@@ -128,4 +130,6 @@ async function removeLogo() {
       <button v-if="auth.isAdmin" class="btn-primary px-6 py-3" :disabled="busy"><Save :size="18" /> {{ t('Save settings') }}</button>
     </fieldset>
   </form>
+  <RegisterSettings />
+  </div>
 </template>

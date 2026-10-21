@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app.database import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models import Register  # noqa: E402
 from app.seed import seed  # noqa: E402
 
 
@@ -17,6 +18,9 @@ def client():
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
         seed(db, demo_history=False)
+        # tests open several shifts at once, as in a shop with a few tills
+        db.add_all(Register(name=f"Counter {n}") for n in range(2, 6))
+        db.commit()
     with TestClient(app) as c:
         yield c
 

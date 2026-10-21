@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { Copy, Printer } from 'lucide-vue-next'
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 
 import { api } from '@/api/client'
 import type { Sale } from '@/api/types'
 import AppModal from '@/components/AppModal.vue'
 import { khr, usd } from '@/lib/money'
-import { printReceipt } from '@/lib/print'
+import { printReceipt, receiptPaper } from '@/lib/print'
 import { useAuth } from '@/stores/auth'
 import { useUi } from '@/stores/ui'
 import { t } from '@/lib/i18n'
@@ -16,6 +16,8 @@ const emit = defineEmits<{ close: [] }>()
 const ui = useUi()
 const auth = useAuth()
 const text = ref('')
+/** The receipt drawn as it prints: logo, centred heading, bold total. */
+const paperHost = ref<HTMLElement | null>(null)
 const autoPrint = ref(localStorage.getItem('pos.autoPrint') === 'yes')
 
 function toggleAutoPrint() {
@@ -31,6 +33,8 @@ async function copy() {
 onMounted(async () => {
   try {
     text.value = await api.text(`/sales/${props.sale.id}/receipt`, { width: 42, reprint: !props.justSold })
+    await nextTick()
+    paperHost.value?.replaceChildren(receiptPaper(document, text.value, auth.settings.logo_url))
     if (props.justSold && autoPrint.value) printReceipt(text.value, props.sale.receipt_no, auth.settings.logo_url)
   } catch (e) {
     ui.error(e)
@@ -45,7 +49,10 @@ onMounted(async () => {
       <p class="text-4xl font-extrabold text-ink">{{ usd(sale.change_due) }}</p>
       <p class="font-semibold text-ok">{{ khr(sale.change_due_khr) }}</p>
     </div>
-    <pre class="overflow-x-auto rounded-xl border border-line bg-white p-4 font-mono text-[12.5px] leading-snug">{{ text || t('Loading...') }}</pre>
+    <div class="flex max-h-[60vh] justify-center overflow-y-auto rounded-xl bg-page p-4">
+      <div v-show="text" ref="paperHost" class="w-[80mm] max-w-full bg-white px-[3mm] py-4 shadow-md"></div>
+      <p v-if="!text" class="py-8 text-sm text-muted">{{ t('Loading...') }}</p>
+    </div>
     <label v-if="justSold" class="mt-3 flex cursor-pointer items-center gap-2 text-sm text-muted">
       <input type="checkbox" :checked="autoPrint" class="size-4 accent-primary" @change="toggleAutoPrint" />
       {{ t('Print the receipt automatically after each sale') }}

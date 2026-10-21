@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { BarElement, CategoryScale, Chart as ChartJS, LinearScale, Tooltip } from 'chart.js'
-import { AlertTriangle, Banknote, ChevronRight, TrendingDown, Boxes, FileSpreadsheet, PackageMinus, PackagePlus, Percent, Receipt, RotateCcw, ShoppingCart, TrendingUp, Wallet } from 'lucide-vue-next'
+import { AlertTriangle, Banknote, Building2, ChevronRight, TrendingDown, Boxes, FileSpreadsheet, PackageMinus, PackagePlus, Percent, Receipt, RotateCcw, ShoppingCart, TrendingUp, Wallet } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { Bar } from 'vue-chartjs'
 
@@ -10,7 +10,7 @@ import { saveBlob } from '@/lib/download'
 import { t } from '@/lib/i18n'
 import ReportRange from '@/components/ReportRange.vue'
 import { num, usd } from '@/lib/money'
-import { rangeName, rangeQuery, reportFrom, reportTo } from '@/lib/reportRange'
+import { rangeName, reportQuery } from '@/lib/reportRange'
 import { useUi } from '@/stores/ui'
 
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip)
@@ -23,7 +23,7 @@ const exporting = ref(false)
 async function load() {
   try {
     ;[report.value, lowStock.value] = await Promise.all([
-      api.get<ReportSummary>('/reports/summary', rangeQuery()),
+      api.get<ReportSummary>('/reports/summary', reportQuery()),
       api.get<Product[]>('/inventory/low-stock'),
     ])
   } catch (e) {
@@ -34,8 +34,9 @@ async function load() {
 async function exportExcel() {
   exporting.value = true
   try {
-    const blob = await api.blob('/reports/export', { date_from: reportFrom.value, date_to: reportTo.value })
-    saveBlob(blob, `sales-${rangeName()}.xlsx`)
+    const blob = await api.blob('/reports/export', reportQuery())
+    const where = report.value?.location_name ? `-${report.value.location_name.replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase()}` : ''
+    saveBlob(blob, `sales-${rangeName()}${where}.xlsx`)
   } catch (e) {
     ui.error(e)
   } finally {
@@ -58,8 +59,13 @@ const stats = computed(() => {
     { label: 'Stock received', value: usd(r.purchases), icon: PackagePlus, color: 'bg-sky-50 text-sky-600' },
     { label: 'Stock losses', value: usd(r.stock_losses), icon: PackageMinus, color: 'bg-rose-50 text-price' },
     { label: 'Stock value now', value: usd(r.stock_value), icon: Boxes, color: 'bg-violet-50 text-violet-600' },
-    { label: 'Expenses', value: usd(r.expenses), icon: TrendingDown, color: 'bg-rose-50 text-price' },
-    { label: 'Profit after expenses', value: usd(r.net_profit), icon: Wallet, color: r.net_profit >= 0 ? 'bg-ok-soft text-ok' : 'bg-rose-50 text-price' },
+    // expenses belong to the whole business, not to one outlet
+    ...(r.location_name
+      ? []
+      : [
+          { label: 'Expenses', value: usd(r.expenses), icon: TrendingDown, color: 'bg-rose-50 text-price' },
+          { label: 'Profit after expenses', value: usd(r.net_profit), icon: Wallet, color: r.net_profit >= 0 ? 'bg-ok-soft text-ok' : 'bg-rose-50 text-price' },
+        ]),
   ]
 })
 
@@ -132,6 +138,19 @@ onMounted(load)
           </div>
         </div>
         <div class="space-y-5">
+          <div v-if="report.by_branch.length > 1" class="card overflow-x-auto">
+            <h2 class="flex items-center gap-2 border-b border-line px-5 py-4 font-bold"><Building2 :size="18" class="text-primary" /> {{ t('By branch') }}</h2>
+            <table class="table">
+              <tbody>
+                <tr v-for="b in report.by_branch" :key="b.name">
+                  <td class="font-semibold">{{ b.name }}</td>
+                  <td class="text-muted">{{ t('{n} sales', { n: b.count }) }}</td>
+                  <td class="w-1/3"><div class="h-2 rounded-full bg-page"><div class="h-2 rounded-full bg-primary" :style="{ width: share(report.by_branch, b) }" /></div></td>
+                  <td class="text-right font-bold">{{ usd(b.amount) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <div class="card overflow-x-auto">
             <h2 class="flex items-center border-b border-line px-5 py-4 font-bold">
               <span class="flex-1">{{ t('Payment methods') }}</span>

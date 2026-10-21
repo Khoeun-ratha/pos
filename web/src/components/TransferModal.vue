@@ -19,9 +19,11 @@ const auth = useAuth()
 const ui = useUi()
 
 const products = ref<Product[]>([])
+/** Staff of a branch send from its stock only (the service checks too). */
+const myBranch = auth.user?.location_id ?? null
 /** '' = main shop */
-const from = ref<number | ''>('')
-const to = ref<number | ''>(props.locations[0]?.id ?? '')
+const from = ref<number | ''>(myBranch ?? '')
+const to = ref<number | ''>(myBranch !== null ? '' : (props.locations[0]?.id ?? ''))
 /** product id -> quantity at the source */
 const sourceStock = ref(new Map<number, number>())
 const lines = ref<{ product: Product; qty: string }[]>([])
@@ -105,7 +107,7 @@ onMounted(async () => {
       <div class="grid items-end gap-3 sm:grid-cols-[1fr_auto_1fr]">
         <div>
           <label class="label">{{ t('From') }}</label>
-          <select v-model="from" class="input">
+          <select v-model="from" class="input" :disabled="myBranch !== null">
             <option v-for="p in places" :key="p.id" :value="p.id">{{ p.name }}</option>
           </select>
         </div>

@@ -406,6 +406,8 @@ onMounted(() => {
         >
           <component :is="shift.current ? LockKeyholeOpen : LockKeyhole" :size="14" />
           {{ shift.current ? t('Shift open') : t('No shift') }}
+          <span v-if="shift.current?.location_name" class="hidden sm:inline">· {{ shift.current.location_name }}</span>
+          <span v-if="shift.current?.register_name" class="hidden sm:inline">· {{ shift.current.register_name }}</span>
         </RouterLink>
       </header>
       <main class="min-h-0 flex-1 overflow-y-auto">

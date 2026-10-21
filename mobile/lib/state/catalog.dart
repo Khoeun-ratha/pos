@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_client.dart';
 import '../models.dart';
+import 'sales.dart';
 import 'scan.dart';
 import 'session.dart';
 
@@ -35,8 +36,18 @@ class CatalogNotifier extends AsyncNotifier<Catalog> {
   Future<Catalog> build() async {
     final api = ref.watch(apiProvider);
     final prefs = ref.read(prefsProvider);
+    // a branch till shows (and sells) that branch's stock
+    int? locationId;
     try {
-      final results = await Future.wait([api.get('/api/categories'), api.get('/api/products')]);
+      locationId = (await ref.watch(currentShiftProvider.future))?.locationId;
+    } on Object {
+      locationId = null; // offline: the cached copy below
+    }
+    try {
+      final results = await Future.wait([
+        api.get('/api/categories'),
+        api.get('/api/products', query: {if (locationId != null) 'location_id': '$locationId'}),
+      ]);
       await prefs.setString(_cacheKey, jsonEncode({'categories': results[0], 'products': results[1]}));
       return _parse(results[0], results[1]);
     } on ApiException catch (e) {

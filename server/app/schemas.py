@@ -39,6 +39,8 @@ class UserOut(ORM):
     role: Role
     is_active: bool
     has_pin: bool
+    location_id: int | None = None  # home branch: opens shifts only there (None: any outlet)
+    location_name: str | None = None
 
 
 class TokenOut(BaseModel):
@@ -68,6 +70,7 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=6)
     pin: str | None = Field(default=None, pattern=r"^\d{4,6}$")
     role: Role = "cashier"
+    location_id: int | None = None  # home branch
 
 
 class UserUpdate(BaseModel):
@@ -76,6 +79,7 @@ class UserUpdate(BaseModel):
     pin: str | None = Field(default=None, pattern=r"^\d{4,6}$")
     role: Role | None = None
     is_active: bool | None = None
+    location_id: int | None = None  # home branch; send null to let them work at any outlet
 
 
 # ---------- catalog ----------
@@ -134,7 +138,7 @@ class ImportResult(BaseModel):
 class StockChangeIn(BaseModel):
     product_id: int
     qty: int  # stock_in: amount received (> 0); adjustment: +/- change
-    note: str | None = None
+    note: str | None = Field(default=None, max_length=200)
     location_id: int | None = None  # branch / warehouse; None = main shop
 
 
@@ -158,7 +162,7 @@ class WriteOffIn(BaseModel):
 class StockCountIn(BaseModel):
     product_id: int
     counted_qty: int = Field(ge=0)
-    note: str | None = None
+    note: str | None = Field(default=None, max_length=200)
     location_id: int | None = None  # branch / warehouse; None = main shop
 
 
@@ -283,7 +287,7 @@ class CartItemIn(BaseModel):
     qty: int = Field(gt=0)
     discount_type: DiscountType | None = None
     discount_value: int = Field(default=0, ge=0)
-    note: str | None = None
+    note: str | None = Field(default=None, max_length=200)
     unit_price: int | None = Field(default=None, ge=0)  # price the till showed; only used for offline sales
 
 
@@ -364,6 +368,9 @@ class SaleOut(ORM):
     shift_id: int | None
     customer_id: int | None
     customer_name: str | None
+    location_id: int | None = None  # the branch that sold it; None = main shop
+    location_name: str | None = None
+    register_name: str | None = None
     subtotal: int
     discount_total: int
     tax_total: int
@@ -449,6 +456,28 @@ class RefundOut(BaseModel):
 
 class ShiftOpenIn(BaseModel):
     opening_cash: int = Field(default=0, ge=0)
+    register_id: int | None = None  # the till; none = the first free one
+
+
+class RegisterIn(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+    location_id: int | None = None  # the branch it stands in; None = main shop
+
+
+class RegisterUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=50)
+    is_active: bool | None = None
+    location_id: int | None = None  # send null to move it to the main shop
+
+
+class RegisterOut(ORM):
+    id: int
+    name: str
+    is_active: bool
+    location_id: int | None = None
+    location_name: str | None = None  # None = main shop
+    open_shift_id: int | None = None  # its drawer is in use...
+    open_by: str | None = None  # ...by this cashier
 
 
 class CashMovementIn(BaseModel):
@@ -459,7 +488,7 @@ class CashMovementIn(BaseModel):
 class ShiftCloseIn(BaseModel):
     counted_usd: int = Field(default=0, ge=0)  # cents
     counted_khr: int = Field(default=0, ge=0)  # riel
-    note: str | None = None
+    note: str | None = Field(default=None, max_length=500)
 
 
 class ShiftHandoverIn(ShiftCloseIn):
@@ -472,6 +501,10 @@ class ShiftReport(BaseModel):
     id: int
     user_id: int
     cashier_name: str
+    register_id: int | None = None
+    register_name: str | None = None
+    location_id: int | None = None  # the branch of the register (its stock is sold); None = main shop
+    location_name: str | None = None
     opened_at: datetime
     closed_at: datetime | None
     is_open: bool
@@ -531,11 +564,14 @@ class ReportSummary(BaseModel):
     average_sale: int
     purchases: int  # cost of stock received in the period (when the cost was entered)
     stock_losses: int  # cost of damaged / expired / lost stock written off in the period
-    stock_value: int  # cost of all stock on hand now: main shop, branches / warehouses and transfers on the road
-    expenses: int = 0  # shop expenses dated in the period
+    stock_value: int  # cost of the stock on hand now: main shop, branches / warehouses and transfers on the road
+    # (only that outlet's stock when the report is for one outlet)
+    location_name: str | None = None  # the outlet this report is for; None = the whole business
+    expenses: int = 0  # shop expenses dated in the period (not split by outlet: 0 in an outlet's report)
     net_profit: int = 0  # profit minus expenses
     by_payment: list[NameAmount]
     by_cashier: list[NameAmount]
+    by_branch: list[NameAmount] = []  # the main shop and each branch that sold
     by_category: list[NameAmount]
     top_products: list[NameAmount]  # top 10 (all products in the Excel export)
     by_day: list[DayAmount]

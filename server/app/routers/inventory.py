@@ -24,6 +24,29 @@ def get_location(db: Session, location_id: int | None) -> Location | None:
     return location
 
 
+def place_for(db: Session, user: User, location_id: int | None) -> Location | None:
+    """Where a stock change happens. Staff of a branch work on its stock: none given means their branch, and
+    another outlet's stock is not theirs to change. Everyone else: the place given (None: the main shop)."""
+    if user.location_id is None:
+        return get_location(db, location_id)
+    if location_id is not None and location_id != user.location_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, f"You work at {user.location_name}: only its stock can be changed")
+    return get_location(db, user.location_id)
+
+
+def _out(db: Session, product: Product, location: Location | None) -> ProductOut:
+    """The product with the stock of the place that changed (the screen shows "now N in stock")."""
+    return ProductOut.model_validate(product).model_copy(update={"stock_qty": qty_at(db, product, location)})
+
+
+def get_branch(db: Session, location_id: int | None) -> Location | None:
+    """A branch that sells (has registers, staff), or None for the main shop. Warehouses only hold stock."""
+    location = get_location(db, location_id)
+    if location is not None and location.kind != "branch":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{location.name} is a warehouse: only a branch has registers and staff")
+    return location
+
+
 def qty_at(db: Session, product: Product, location: Location | None) -> int:
     if location is None:
         return product.stock_qty
@@ -83,7 +106,7 @@ def stock_in(body: StockInIn, db: Session = Depends(get_db), user: User = Depend
     """Goods received. With `unit_cost`, the product's cost becomes the average of the stock on hand
     and the new delivery, so profit stays right when the supplier changes the price."""
     product = _tracked_product(db, body.product_id)
-    location = get_location(db, body.location_id)
+    location = place_for(db, user, body.location_id)
     supplier = None
     if body.supplier_id is not None:
         supplier = db.get(Supplier, body.supplier_id)
@@ -101,14 +124,14 @@ def stock_in(body: StockInIn, db: Session = Depends(get_db), user: User = Depend
                supplier_id=supplier.id if supplier else None, location=location)
     audit(db, user, "stock_in", detail)
     db.commit()
-    return product
+    return _out(db, product, location)
 
 
 @router.post("/write-off", response_model=ProductOut)
 def write_off(body: WriteOffIn, db: Session = Depends(get_db), user: User = Depends(require_perm("inventory"))):
     """Damaged, expired, lost or taken for own use. The cost is kept so reports show what was lost."""
     product = _tracked_product(db, body.product_id)
-    location = get_location(db, body.location_id)
+    location = place_for(db, user, body.location_id)
     not_below_zero(db, product, body.qty, location)
     reason = REASONS[body.reason]
     note = f"{reason}: {body.note}" if body.note else reason
@@ -116,7 +139,7 @@ def write_off(body: WriteOffIn, db: Session = Depends(get_db), user: User = Depe
     audit(db, user, "stock_write_off",
           f"{product.name} -{body.qty}{_where(location)} ({note}), ${product.cost * body.qty / 100:.2f}")
     db.commit()
-    return product
+    return _out(db, product, location)
 
 
 @router.post("/adjust", response_model=ProductOut)
@@ -125,34 +148,44 @@ def adjust(body: StockChangeIn, db: Session = Depends(get_db), user: User = Depe
     if body.qty == 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Change cannot be 0")
     product = _tracked_product(db, body.product_id)
-    location = get_location(db, body.location_id)
+    location = place_for(db, user, body.location_id)
     not_below_zero(db, product, -body.qty, location)
     move_stock(db, product, body.qty, "adjustment", user, note=body.note, location=location)
     audit(db, user, "stock_adjust", f"{product.name} {body.qty:+d}{_where(location)} ({body.note or ''})")
     db.commit()
-    return product
+    return _out(db, product, location)
 
 
 @router.post("/count", response_model=ProductOut)
 def count(body: StockCountIn, db: Session = Depends(get_db), user: User = Depends(require_perm("inventory"))):
     """Stock take: set the level to what was physically counted."""
     product = _tracked_product(db, body.product_id)
-    location = get_location(db, body.location_id)
+    location = place_for(db, user, body.location_id)
     change = body.counted_qty - qty_at(db, product, location)
     if change:
         move_stock(db, product, change, "count", user, note=body.note or "Stock count", location=location)
         audit(db, user, "stock_count", f"{product.name} {change:+d}{_where(location)}")
     db.commit()
-    return product
+    return _out(db, product, location)
 
 
 @router.get("/low-stock", response_model=list[ProductOut])
-def low_stock(db: Session = Depends(get_db), _: User = Depends(require_perm("inventory", "reports"))):
-    return db.scalars(
-        select(Product)
-        .where(Product.is_active.is_(True), Product.track_stock.is_(True), Product.stock_qty <= Product.low_stock_threshold)
-        .order_by(Product.stock_qty)
+def low_stock(db: Session = Depends(get_db), user: User = Depends(require_perm("inventory", "reports"))):
+    """Products at or under their low-stock level: in the main shop, or for staff of a branch, in their branch."""
+    if user.location_id is None:
+        return db.scalars(
+            select(Product)
+            .where(Product.is_active.is_(True), Product.track_stock.is_(True), Product.stock_qty <= Product.low_stock_threshold)
+            .order_by(Product.stock_qty)
+        ).all()
+    there = func.coalesce(LocationStock.qty, 0)  # never stocked there: 0
+    rows = db.execute(
+        select(Product, there)
+        .outerjoin(LocationStock, (LocationStock.product_id == Product.id) & (LocationStock.location_id == user.location_id))
+        .where(Product.is_active.is_(True), Product.track_stock.is_(True), there <= Product.low_stock_threshold)
+        .order_by(there)
     ).all()
+    return [ProductOut.model_validate(p).model_copy(update={"stock_qty": qty}) for p, qty in rows]
 
 
 @router.get("/movements", response_model=list[StockMovementOut])
@@ -165,8 +198,10 @@ def movements(
     limit: int = Query(200, le=2000),
     offset: int = 0,
     db: Session = Depends(get_db),
-    _: User = Depends(require_perm("inventory")),
+    user: User = Depends(require_perm("inventory")),
 ):
+    if user.location_id is not None:  # staff of a branch: its history
+        location = str(user.location_id)
     query = select(StockMovement)
     if product_id:
         query = query.where(StockMovement.product_id == product_id)

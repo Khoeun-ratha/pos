@@ -29,10 +29,18 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default=ROLE_CASHIER)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    # the branch this person works at: they open shifts only on its registers (None: any outlet)
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id"), nullable=True)
+
+    location: Mapped["Location | None"] = relationship(lazy="joined")
 
     @property
     def has_pin(self) -> bool:
         return self.pin_hash is not None
+
+    @property
+    def location_name(self) -> str | None:
+        return self.location.name if self.location else None
 
 
 class Category(Base):
@@ -90,11 +98,32 @@ class Customer(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
+class Register(Base):
+    """A till / counter with its own cash drawer. A shift opens on one register, and a register has at most one
+    open shift, so every drawer is counted by one person at a time. It stands in the main shop or in a branch,
+    and sells from that outlet's stock."""
+
+    __tablename__ = "registers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id"), nullable=True)  # None = main shop
+
+    location: Mapped["Location | None"] = relationship(lazy="joined")
+
+    @property
+    def location_name(self) -> str | None:
+        return self.location.name if self.location else None
+
+
 class Shift(Base):
     __tablename__ = "shifts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    register_id: Mapped[int | None] = mapped_column(ForeignKey("registers.id"), nullable=True, index=True)
     opened_at: Mapped[datetime] = mapped_column(DateTime, default=now)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     opening_cash: Mapped[int] = mapped_column(Integer, default=0)
@@ -107,6 +136,7 @@ class Shift(Base):
 
     user: Mapped[User] = relationship(lazy="joined", foreign_keys=[user_id])
     handed_to: Mapped[User | None] = relationship(lazy="joined", foreign_keys=[handed_to_id])
+    register: Mapped[Register | None] = relationship(lazy="joined")
 
 
 class CashMovement(Base):
@@ -156,6 +186,8 @@ class Sale(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     shift_id: Mapped[int | None] = mapped_column(ForeignKey("shifts.id"), nullable=True)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), nullable=True)
+    # the outlet that sold it (and whose stock it took): None = main shop
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id"), nullable=True, index=True)
     subtotal: Mapped[int] = mapped_column(Integer)
     discount_total: Mapped[int] = mapped_column(Integer, default=0)
     tax_total: Mapped[int] = mapped_column(Integer, default=0)
@@ -176,6 +208,8 @@ class Sale(Base):
     payments: Mapped[list["Payment"]] = relationship(
         back_populates="sale", cascade="all, delete-orphan", lazy="selectin", order_by="Payment.id"
     )
+    shift: Mapped[Shift | None] = relationship()  # loaded only when asked (receipt, sale details)
+    location: Mapped["Location | None"] = relationship(lazy="joined")
 
     @property
     def cashier_name(self) -> str:
@@ -184,6 +218,16 @@ class Sale(Base):
     @property
     def customer_name(self) -> str | None:
         return self.customer.name if self.customer else None
+
+    @property
+    def location_name(self) -> str | None:
+        """The branch that sold it; None for the main shop."""
+        return self.location.name if self.location else None
+
+    @property
+    def register_name(self) -> str | None:
+        """The till the money went into (none for a phone sale made with no shift open)."""
+        return self.shift.register.name if self.shift and self.shift.register else None
 
 
 class SaleItem(Base):
@@ -222,7 +266,7 @@ class Payment(Base):
 
 class ParkedOrder(Base):
     """A held cart ("customer went to fetch something"), kept on the server so it survives a page refresh
-    and any till can finish it."""
+    and any till of the same outlet can finish it."""
 
     __tablename__ = "parked_orders"
 
@@ -235,6 +279,8 @@ class ParkedOrder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
     # sent to this cashier's till (any till can still finish it)
     assigned_to_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # the outlet where the customer waits: only its tills see the order (None: the main shop)
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id"), nullable=True)
 
     user: Mapped[User] = relationship(lazy="joined", foreign_keys=[user_id])
     customer: Mapped[Customer | None] = relationship(lazy="joined")

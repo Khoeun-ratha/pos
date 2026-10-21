@@ -1,18 +1,20 @@
 typedef Json = Map<String, dynamic>;
 
 class User {
-  const User({required this.id, required this.username, required this.fullName, required this.role});
+  const User({required this.id, required this.username, required this.fullName, required this.role, this.locationId});
 
-  factory User.fromJson(Json j) => User(id: j['id'], username: j['username'], fullName: j['full_name'] ?? '', role: j['role']);
+  factory User.fromJson(Json j) =>
+      User(id: j['id'], username: j['username'], fullName: j['full_name'] ?? '', role: j['role'], locationId: j['location_id']);
 
   final int id;
   final String username, fullName, role;
+  final int? locationId; // home branch: opens shifts only on its registers (null: any outlet)
 
   String get displayName => fullName.isEmpty ? username : fullName;
   bool get isManager => role == 'admin' || role == 'manager';
   bool get isAdmin => role == 'admin';
 
-  Json toJson() => {'id': id, 'username': username, 'full_name': fullName, 'role': role};
+  Json toJson() => {'id': id, 'username': username, 'full_name': fullName, 'role': role, 'location_id': locationId};
 }
 
 class StoreSettings {
@@ -262,10 +264,37 @@ class Sale {
   bool get canRefund => items.any((i) => i.refundableQty > 0);
 }
 
+/// A till / counter with its own cash drawer; a shift opens on one. It stands in the main shop or a branch.
+class Register {
+  const Register({required this.id, required this.name, required this.isActive, this.locationId, this.locationName, this.openBy});
+
+  factory Register.fromJson(Json j) => Register(
+    id: j['id'],
+    name: j['name'],
+    isActive: j['is_active'],
+    locationId: j['location_id'],
+    locationName: j['location_name'],
+    openBy: j['open_by'],
+  );
+
+  final int id;
+  final String name;
+  final bool isActive;
+  final int? locationId; // null: the main shop
+  final String? locationName;
+  final String? openBy; // its drawer is in use by this cashier
+
+  /// "Riverside · Till 1", or just the name in the main shop.
+  String get label => locationName == null ? name : '$locationName · $name';
+}
+
 class ShiftReport {
   const ShiftReport({
     required this.id,
     required this.cashierName,
+    this.registerName,
+    this.locationId,
+    this.locationName,
     required this.openedAt,
     this.closedAt,
     required this.isOpen,
@@ -285,6 +314,9 @@ class ShiftReport {
   factory ShiftReport.fromJson(Json j) => ShiftReport(
     id: j['id'],
     cashierName: j['cashier_name'],
+    registerName: j['register_name'],
+    locationId: j['location_id'],
+    locationName: j['location_name'],
     openedAt: DateTime.parse(j['opened_at']),
     closedAt: j['closed_at'] == null ? null : DateTime.parse(j['closed_at']),
     isOpen: j['is_open'],
@@ -304,6 +336,9 @@ class ShiftReport {
   final int id, salesCount, openingCash, cashSales, cardSales, khqrSales, cashIn, cashOut, cashRefunds, expectedCash;
   final int? countedCash, variance;
   final String cashierName;
+  final String? registerName;
+  final int? locationId; // the register's branch, whose stock this till sells (null: the main shop)
+  final String? locationName;
   final DateTime openedAt;
   final DateTime? closedAt;
   final bool isOpen;

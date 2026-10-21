@@ -150,7 +150,7 @@ onMounted(() => {
           <div class="flex flex-wrap items-start gap-3">
             <div class="flex-1">
               <h2 class="text-xl font-extrabold">{{ selected.receipt_no }}</h2>
-              <p class="text-muted">{{ dateTime(selected.created_at) }} · {{ selected.cashier_name }}{{ selected.customer_name ? ` · ${selected.customer_name}` : '' }}</p>
+              <p class="text-muted">{{ dateTime(selected.created_at) }} · {{ selected.cashier_name }}{{ selected.location_name ? ` · ${selected.location_name}` : '' }}{{ selected.register_name ? ` · ${selected.register_name}` : '' }}{{ selected.customer_name ? ` · ${selected.customer_name}` : '' }}</p>
             </div>
             <span :class="['pill', statusClass[selected.status]]">{{ t(selected.status.replace('_', ' ')) }}</span>
           </div>

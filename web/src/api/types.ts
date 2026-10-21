@@ -22,6 +22,9 @@ export interface User {
   role: Role
   is_active: boolean
   has_pin: boolean
+  /** home branch: opens shifts only on its registers (null: any outlet) */
+  location_id: number | null
+  location_name: string | null
 }
 
 export interface TokenResponse {
@@ -184,6 +187,9 @@ export interface Sale {
   cashier_name: string
   customer_id: number | null
   customer_name: string | null
+  /** the branch that sold it (null: the main shop) */
+  location_name: string | null
+  register_name: string | null
   subtotal: number
   discount_total: number
   tax_total: number
@@ -245,10 +251,27 @@ export interface ShiftHandover {
   opened: ShiftReport
 }
 
+/** A till / counter with its own cash drawer; a shift opens on one. */
+export interface Register {
+  id: number
+  name: string
+  is_active: boolean
+  /** the branch it stands in (null: the main shop); it sells from that outlet's stock */
+  location_id: number | null
+  location_name: string | null
+  open_shift_id: number | null
+  open_by: string | null
+}
+
 export interface ShiftReport {
   id: number
   user_id: number
   cashier_name: string
+  register_id: number | null
+  register_name: string | null
+  /** the register's branch (null: the main shop); the till sells its stock */
+  location_id: number | null
+  location_name: string | null
   opened_at: string
   closed_at: string | null
   is_open: boolean
@@ -292,10 +315,13 @@ export interface ReportSummary {
   purchases: number
   stock_losses: number
   stock_value: number
+  /** the outlet the report is for (null: the whole business) */
+  location_name: string | null
   expenses: number
   net_profit: number
   by_payment: NameAmount[]
   by_cashier: NameAmount[]
+  by_branch: NameAmount[]
   by_category: NameAmount[]
   top_products: NameAmount[]
   by_day: { day: string; count: number; amount: number }[]

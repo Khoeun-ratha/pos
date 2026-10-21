@@ -45,14 +45,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Center(child: BrandMark(size: 80)),
-                    const SizedBox(height: 14),
-                    Text(
-                      storeName,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 0.5),
-                    ),
-                    const SizedBox(height: 32),
+                    const Center(child: BrandLogo(width: 220)),
+                    // the logo carries the name; a shop renamed in Store settings still shows its own
+                    if (storeName.trim().toUpperCase() != 'RATHA MART') ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        storeName,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 0.5),
+                      ),
+                    ],
+                    const SizedBox(height: 28),
                     TextField(
                       controller: _server,
                       keyboardType: TextInputType.url,

@@ -5,11 +5,12 @@ from sqlalchemy.orm import Session
 from .. import permissions, store_settings
 from ..database import get_db
 from ..deps import audit, get_current_user, require_perm, sees_all_sales
-from ..models import CashMovement, Refund, Sale, Shift, User, now
+from ..models import CashMovement, Refund, Register, Sale, Shift, User, now
 from ..pricing import khr_to_usd_cents
 from ..security import verify_secret
 from ..schemas import CashMovementIn, ShiftCloseIn, ShiftHandoverIn, ShiftHandoverOut, ShiftOpenIn, ShiftReport
-from .sales import open_shift_of
+from .registers import check_works_at, free_register, lock_tills
+from .sales import open_shift_of, same_outlet
 
 router = APIRouter(prefix="/api/shifts", tags=["shifts"])
 
@@ -37,6 +38,10 @@ def report(db: Session, shift: Shift) -> ShiftReport:
         id=shift.id,
         user_id=shift.user_id,
         cashier_name=shift.user.full_name or shift.user.username,
+        register_id=shift.register_id,
+        register_name=shift.register.name if shift.register else None,
+        location_id=shift.register.location_id if shift.register else None,
+        location_name=shift.register.location_name if shift.register else None,
         opened_at=shift.opened_at,
         closed_at=shift.closed_at,
         is_open=shift.closed_at is None,
@@ -57,6 +62,26 @@ def report(db: Session, shift: Shift) -> ShiftReport:
     )
 
 
+def take_cash(db: Session, shift: Shift, amount: int) -> None:
+    """Refuse taking more cash out than the drawer should hold: it cannot be paid, and the count would go below zero."""
+    have = report(db, shift).expected_cash
+    if amount > have:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"Only ${max(have, 0) / 100:.2f} is in the cash drawer: ${amount / 100:.2f} cannot come out")
+
+
+def shift_outlet(shift: Shift) -> int | None:
+    """The outlet of the shift's register (None: the main shop)."""
+    return shift.register.location_id if shift.register else None
+
+
+def at_outlet(query, location_id: int | None):
+    """Shifts of one outlet: its registers' (the main shop's include shifts from before registers)."""
+    if location_id is None:
+        return query.outerjoin(Register, Register.id == Shift.register_id).where(Register.location_id.is_(None))
+    return query.join(Register, Register.id == Shift.register_id).where(Register.location_id == location_id)
+
+
 def _require_open(db: Session, user: User) -> Shift:
     shift = open_shift_of(db, user)
     if shift is None:
@@ -72,11 +97,13 @@ def current(db: Session = Depends(get_db), user: User = Depends(get_current_user
 
 @router.post("/open", response_model=ShiftReport, status_code=201)
 def open_shift(body: ShiftOpenIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if open_shift_of(db, user):
+    lock_tills(db)
+    if open_shift_of(db, user, lock=True):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You already have an open shift")
-    shift = Shift(user_id=user.id, opening_cash=body.opening_cash)
+    register = free_register(db, body.register_id, user)
+    shift = Shift(user_id=user.id, opening_cash=body.opening_cash, register=register)
     db.add(shift)
-    audit(db, user, "shift_open", f"opening cash ${body.opening_cash / 100:.2f}")
+    audit(db, user, "shift_open", f"{register.name}, opening cash ${body.opening_cash / 100:.2f}")
     db.commit()
     db.refresh(shift)
     return report(db, shift)
@@ -87,6 +114,8 @@ def cash_movement(body: CashMovementIn, db: Session = Depends(get_db), user: Use
     if body.amount == 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Amount cannot be 0")
     shift = _require_open(db, user)
+    if body.amount < 0:
+        take_cash(db, shift, -body.amount)
     db.add(CashMovement(shift_id=shift.id, user_id=user.id, amount=body.amount, reason=body.reason))
     audit(db, user, "cash_in" if body.amount > 0 else "cash_out", f"${abs(body.amount) / 100:.2f} {body.reason}")
     db.commit()
@@ -121,16 +150,19 @@ def handover(body: ShiftHandoverIn, db: Session = Depends(get_db), user: User = 
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose who takes over the drawer")
     if nxt.id == user.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose another cashier to take over")
+    if shift.register is not None:
+        check_works_at(nxt, shift.register)
     if nxt.pin_hash is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{nxt.username} has no PIN yet: ask the admin to set one")
     if not verify_secret(body.pin, nxt.pin_hash):
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"Wrong PIN for {nxt.username}")
-    if open_shift_of(db, nxt):
+    lock_tills(db)
+    if open_shift_of(db, nxt, lock=True):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{nxt.username} already has an open shift")
 
     _count_and_close(db, shift, body)
     shift.handed_to = nxt
-    opened = Shift(user_id=nxt.id, opening_cash=shift.counted_cash, handed_from_id=shift.id)
+    opened = Shift(user_id=nxt.id, opening_cash=shift.counted_cash, handed_from_id=shift.id, register_id=shift.register_id)
     db.add(opened)
     audit(db, user, "shift_handover",
           f"to {nxt.username}: expected ${shift.expected_cash / 100:.2f} counted ${shift.counted_cash / 100:.2f}")
@@ -145,6 +177,8 @@ def list_shifts(limit: int = Query(50, le=500), db: Session = Depends(get_db), u
     query = select(Shift)
     if not permissions.has(db, user, "reports", "all_sales"):
         query = query.where(Shift.user_id == user.id)
+    elif user.location_id is not None:  # a branch manager: their branch's tills
+        query = at_outlet(query, user.location_id)
     return [report(db, s) for s in db.scalars(query.order_by(Shift.id.desc()).limit(limit))]
 
 
@@ -153,7 +187,7 @@ def close_other_shift(shift_id: int, body: ShiftCloseIn, db: Session = Depends(g
                       manager: User = Depends(require_perm("reports"))):
     """A manager counts and closes a shift its cashier left open (went home, phone lost, account deactivated)."""
     shift = db.get(Shift, shift_id)
-    if shift is None:
+    if shift is None or not same_outlet(shift_outlet(shift), manager):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Shift not found")
     if shift.closed_at is not None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This shift is already closed")
@@ -170,6 +204,6 @@ def close_other_shift(shift_id: int, body: ShiftCloseIn, db: Session = Depends(g
 @router.get("/{shift_id}", response_model=ShiftReport)
 def get_shift(shift_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     shift = db.get(Shift, shift_id)
-    if shift is None or (shift.user_id != user.id and not sees_all_sales(db, user)):
+    if shift is None or (shift.user_id != user.id and not (sees_all_sales(db, user) and same_outlet(shift_outlet(shift), user))):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Shift not found")
     return report(db, shift)

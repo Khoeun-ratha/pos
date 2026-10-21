@@ -13,14 +13,27 @@ function stored(key: string) {
   }
 }
 
+function storedOutlet() {
+  try {
+    const value = sessionStorage.getItem('pos.report.outlet') ?? ''
+    return value === 'main' || /^\d+$/.test(value) ? value : ''
+  } catch {
+    return ''
+  }
+}
+
 export const today = () => isoDate(new Date())
 export const reportFrom = ref(stored('pos.report.from') ?? today())
 export const reportTo = ref(stored('pos.report.to') ?? today())
+/** The outlet the reports cover: '' the whole business, 'main' the main shop, or a branch id. Staff of a branch
+ *  always get their branch (the service decides). */
+export const reportOutlet = ref(storedOutlet())
 
-watch([reportFrom, reportTo], ([from, to]) => {
+watch([reportFrom, reportTo, reportOutlet], ([from, to, outlet]) => {
   try {
     sessionStorage.setItem('pos.report.from', from)
     sessionStorage.setItem('pos.report.to', to)
+    sessionStorage.setItem('pos.report.outlet', outlet)
   } catch {
     // private window
   }
@@ -41,8 +54,11 @@ export function presets(): [string, string, string][] {
   ]
 }
 
-/** Query for the report endpoints. */
+/** The period, for pages that are not reports (expenses). */
 export const rangeQuery = () => ({ date_from: reportFrom.value, date_to: reportTo.value })
+
+/** Query for the report endpoints: the period and the outlet. */
+export const reportQuery = () => ({ ...rangeQuery(), location: reportOutlet.value })
 
 /** "2026-10-01" or "2026-10-01-to-2026-10-20", for file names. */
 export const rangeName = () => (reportFrom.value === reportTo.value ? reportFrom.value : `${reportFrom.value}-to-${reportTo.value}`)

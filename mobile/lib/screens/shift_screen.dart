@@ -7,6 +7,12 @@ import '../state/sales.dart';
 import '../state/session.dart';
 import '../widgets/common.dart';
 
+/// The tills, for choosing where a shift opens.
+final registersProvider = FutureProvider.autoDispose<List<Register>>((ref) async {
+  final data = await ref.watch(apiProvider).get('/api/registers') as List;
+  return [for (final r in data) Register.fromJson(r)];
+});
+
 class ShiftScreen extends ConsumerStatefulWidget {
   const ShiftScreen({super.key});
 
@@ -16,6 +22,7 @@ class ShiftScreen extends ConsumerStatefulWidget {
 
 class _ShiftScreenState extends ConsumerState<ShiftScreen> {
   final _openingCash = TextEditingController(text: '0');
+  int? _registerId; // null: the first free one
   bool _busy = false;
 
   Future<void> _run(Future<void> Function() action) async {
@@ -32,8 +39,9 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
   Future<void> _open() => _run(() async {
     final cents = parseDollars(_openingCash.text);
     if (cents == null) return;
-    await ref.read(apiProvider).post('/api/shifts/open', {'opening_cash': cents});
+    await ref.read(apiProvider).post('/api/shifts/open', {'opening_cash': cents, 'register_id': _registerId});
     ref.invalidate(currentShiftProvider);
+    ref.invalidate(registersProvider);
   });
 
   Future<void> _cashMovement(bool cashIn) async {
@@ -72,6 +80,41 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
     });
   }
 
+  /// A list of the tills when the shop has more than one; busy ones show who has them.
+  List<Widget> _registerChoice() {
+    // staff with a home branch open shifts only on its registers
+    final home = ref.watch(sessionProvider).user?.locationId;
+    final usable = [
+      for (final r in ref.watch(registersProvider).value ?? <Register>[])
+        if (r.isActive && (home == null || r.locationId == home)) r,
+    ];
+    if (usable.length < 2) return const [];
+    final free = usable.where((r) => r.openBy == null).toList();
+    final chosen = free.any((r) => r.id == _registerId) ? _registerId : free.firstOrNull?.id;
+    return [
+      DropdownButtonFormField<int>(
+        initialValue: chosen,
+        decoration: const InputDecoration(labelText: 'Register', border: OutlineInputBorder()),
+        items: [
+          for (final r in usable)
+            DropdownMenuItem(
+              value: r.id,
+              enabled: r.openBy == null,
+              child: Text(r.openBy == null ? r.label : '${r.label} · in use by ${r.openBy}'),
+            ),
+        ],
+        onChanged: (id) => setState(() => _registerId = id),
+      ),
+      if (free.isEmpty)
+        const Padding(
+          padding: EdgeInsets.only(top: 6),
+          child: Text('Every register is in use: close a shift first, or add a register in Store settings',
+              style: TextStyle(color: Colors.red)),
+        ),
+      const SizedBox(height: 16),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final shift = ref.watch(currentShiftProvider);
@@ -90,6 +133,7 @@ class _ShiftScreenState extends ConsumerState<ShiftScreen> {
                 const SizedBox(height: 8),
                 const Text('Count the cash in the drawer and enter it to start your shift.'),
                 const SizedBox(height: 16),
+                ..._registerChoice(),
                 TextField(
                   controller: _openingCash,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -158,6 +202,11 @@ class ShiftReportView extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(report.cashierName, style: Theme.of(context).textTheme.titleLarge),
+        if (report.registerName != null)
+          Text(
+            [?report.locationName, report.registerName!].join(' · '),
+            style: TextStyle(color: Theme.of(context).colorScheme.primary),
+          ),
         Text('Opened ${dateTime(report.openedAt)}${report.closedAt == null ? '' : '\nClosed ${dateTime(report.closedAt!)}'}'),
         const Divider(),
         MoneyRow('Sales', '${report.salesCount}'),
